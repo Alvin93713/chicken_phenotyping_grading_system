@@ -20,7 +20,6 @@ The system is designed to work with:
 - Arduino Leonardo
 - Physical buttons
 - Green, yellow, and red indicator lights
-- Optional buzzer
 
 ## Data Storage
 
