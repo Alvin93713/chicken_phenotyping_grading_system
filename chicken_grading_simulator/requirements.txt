@@ -1,0 +1,12 @@
+streamlit
+pandas
+qrcode
+pillow
+opencv-python
+numpy
+pyzbar
+torch
+ultralytics
+tqdm
+streamlit-image-coordinates
+pyserial

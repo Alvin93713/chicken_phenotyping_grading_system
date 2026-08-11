@@ -1,0 +1,56 @@
+__pycache__/
+*.py[cod]
+*.log
+
+# Local Streamlit/runtime state
+.streamlit/secrets.toml
+
+# Build artifacts
+build/
+dist/
+*.spec~
+
+# Windows shortcuts are local launch helpers
+*.lnk
+
+# Large model/video/runtime artifacts
+chicken_grading_simulator/data/sam2_b.pt
+chicken_grading_simulator/data/best.pt
+chicken_grading_simulator/data/comb_shank_sam_video/
+chicken_grading_simulator/data/_sam2_demo_input/
+chicken_grading_simulator/data/_sam2_selected_input/
+chicken_grading_simulator/data/sam2_inference_outputs/
+chicken_grading_simulator/data/camera_captures/
+chicken_grading_simulator/data/calibration_captures/
+
+# SQLite GUI project files
+*.sqbpro
+
+# GitHub source repo exclusions
+*.pt
+*.pth
+*.onnx
+*.engine
+*.mp4
+*.avi
+*.mov
+*.zip
+*.bundle
+*.yaml
+*.yml
+*.log
+*.pyc
+*.sqbpro
+*.lnk
+bartech_*.html
+bartech_*.pdf
+chicken_grading_simulator/build/
+chicken_grading_simulator/dist/
+chicken_grading_simulator/dist_fixed_*/
+chicken_grading_simulator/data/model_eval_charts/
+chicken_grading_simulator/data/sam2_inference_outputs/
+chicken_grading_simulator/data/camera_captures/
+chicken_grading_simulator/data/calibration_captures/
+chicken_grading_simulator/data/comb_shank_sam_video/
+chicken_grading_simulator/data/_sam2_demo_input/
+chicken_grading_simulator/data/_sam2_selected_input/
