@@ -1,4 +1,4 @@
-# chicken_phenotyping_grading_system
+# chicken-phenotyping-grading-system
 
 A local chicken phenotyping and grading system built with Streamlit.
 
@@ -13,7 +13,8 @@ The system supports QR-based chicken identification, phenotype data entry, camer
 - Queue-based inference workflow
 - SQLite database storage
 - Three-level grading result: pass, standby, fail
-- Arduino Leonardo integration for physical lights, buzzer, and buttons
+- Manually entered grading threshold
+- Arduino Leonardo + 12V power supply integration for physical lights and buttons
 - Local Streamlit browser interface
 
 ## Repository Notes
@@ -23,10 +24,11 @@ Large runtime assets are intentionally excluded from this repository, including 
 Required external assets may include:
 
 - YOLO segmentation model weights, such as `best.pt`
-- Optional SAM2 weights, such as `sam2_b.pt`
 - Local camera hardware
 - USB QR code scanner
-- Arduino Leonardo based light and button controller
+- Arduino Leonardo
+- 12V power supply + physical light
+- button controller
 
 ## Basic Usage
 
