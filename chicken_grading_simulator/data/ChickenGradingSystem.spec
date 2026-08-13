@@ -9,18 +9,13 @@ block_cipher = None
 root = Path.cwd()
 
 datas = [
-    (str(root / "app.py"), "."),
-    (str(root / "launcher.py"), "."),
     (str(root / "src"), "src"),
-    (str(root / "qr_utils.py"), "."),
     (str(root / "README.md"), "."),
     (str(root / "requirements.txt"), "."),
     (str(root / "best.pt"), "."),
     (str(root / "data"), "data"),
-    (str(root / "qrcodes"), "qrcodes"),
     (str(root / "arduino"), "arduino"),
     (str(root / "rendered_qr_docx"), "rendered_qr_docx"),
-    (str(root / "Chicken_ID_QR_Codes_C001_C020.docx"), "."),
 ]
 
 binaries = []

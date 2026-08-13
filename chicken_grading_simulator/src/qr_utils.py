@@ -10,8 +10,8 @@ import qrcode
 from PIL import Image
 
 
-BASE_DIR = Path(__file__).resolve().parent
-QRCODE_DIR = BASE_DIR / "qrcodes"
+BASE_DIR = Path(__file__).resolve().parents[1]
+QRCODE_DIR = BASE_DIR / "data" / "qrcodes"
 
 
 def safe_qrcode_filename(chicken_id):

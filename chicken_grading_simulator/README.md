@@ -35,7 +35,7 @@ Large model files, videos, packaged executables, and inference output folders ar
 
 ```bash
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run src/app.py
 ```
 
 For deployment on another machine, prepare the required model weights and hardware-specific configuration separately.
