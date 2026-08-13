@@ -10,13 +10,9 @@ root = Path.cwd()
 
 datas = [
     (str(root / "app.py"), "."),
-    (str(root / "database.py"), "."),
-    (str(root / "grading.py"), "."),
-    (str(root / "inference_utils.py"), "."),
-    (str(root / "inference_queue.py"), "."),
-    (str(root / "arduino_control.py"), "."),
+    (str(root / "launcher.py"), "."),
+    (str(root / "src"), "src"),
     (str(root / "qr_utils.py"), "."),
-    (str(root / "sample_data.py"), "."),
     (str(root / "README.md"), "."),
     (str(root / "requirements.txt"), "."),
     (str(root / "best.pt"), "."),
@@ -85,8 +81,8 @@ for metadata_package in [
     datas += copy_metadata(metadata_package)
 
 a = Analysis(
-    ["launcher.py"],
-    pathex=[str(root)],
+    ["src/launcher.py"],
+    pathex=[str(root), str(root / "src")],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

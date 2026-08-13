@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else BASE_DIR
 BUNDLED_DATA_DIR = BASE_DIR / "data"
 DATA_DIR = APP_DIR / "data" if getattr(sys, "frozen", False) else BUNDLED_DATA_DIR

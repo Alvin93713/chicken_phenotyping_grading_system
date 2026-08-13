@@ -25,7 +25,7 @@ def is_frozen_app() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]
 APP_DIR = Path(sys.executable).resolve().parent if is_frozen_app() else BASE_DIR
 BUNDLED_DATA_DIR = BASE_DIR / "data"
 DATA_DIR = APP_DIR / "data" if is_frozen_app() else BUNDLED_DATA_DIR
