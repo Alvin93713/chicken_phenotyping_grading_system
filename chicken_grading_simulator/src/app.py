@@ -461,9 +461,9 @@ LIGHT_CSS = """
 
 [data-testid="stHeading"] h1 {
     letter-spacing: 0;
-    font-size: 2.85rem;
+    font-size: 2.5rem;
     line-height: 1.12;
-    background: linear-gradient(90deg, #ffffff 0%, #c7d2fe 42%, #7dd3fc 100%);
+    background: linear-gradient(90deg, #ffffff 0%, #dbeafe 36%, #67e8f9 70%, #86efac 100%);
     -webkit-background-clip: text;
     color: transparent;
 }
@@ -483,6 +483,154 @@ LIGHT_CSS = """
 [data-testid="stCaptionContainer"],
 [data-testid="stMarkdownContainer"] p {
     color: var(--text-muted);
+}
+
+.app-hero {
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(320px, 1.2fr) minmax(360px, 0.8fr);
+    gap: 24px;
+    align-items: stretch;
+    padding: 26px;
+    margin-bottom: 22px;
+    border: 1px solid rgba(125, 211, 252, 0.24);
+    border-radius: 8px;
+    background:
+        linear-gradient(125deg, rgba(14, 165, 233, 0.14), rgba(15, 23, 42, 0.52) 44%, rgba(34, 197, 94, 0.10)),
+        rgba(2, 6, 23, 0.76);
+    box-shadow: 0 24px 72px rgba(2, 6, 23, 0.42);
+    animation: fadeSlideIn 220ms ease-out;
+}
+.app-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.10), transparent);
+    transform: translateX(-60%);
+    animation: glowSweep 3600ms ease-in-out infinite alternate;
+}
+.hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    padding: 7px 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(34, 197, 94, 0.36);
+    background: rgba(22, 163, 74, 0.12);
+    color: #bbf7d0;
+    font-size: 0.82rem;
+    font-weight: 900;
+    letter-spacing: 0;
+}
+.hero-title {
+    margin-top: 14px;
+    font-size: 2.45rem;
+    line-height: 1.08;
+    font-weight: 950;
+    color: #f8fafc;
+}
+.hero-copy {
+    max-width: 720px;
+    margin-top: 12px;
+    color: #b6c2d7;
+    font-size: 1rem;
+    line-height: 1.6;
+}
+.hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 16px;
+}
+.hero-chip {
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(15, 23, 42, 0.72);
+    color: #dbeafe;
+    font-weight: 800;
+    font-size: 0.9rem;
+}
+.hero-panel {
+    position: relative;
+    z-index: 1;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)),
+        rgba(15, 23, 42, 0.78);
+    padding: 18px;
+}
+.hero-panel-title {
+    color: #f8fafc;
+    font-weight: 900;
+    font-size: 1rem;
+    margin-bottom: 14px;
+}
+.status-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+.status-widget {
+    min-height: 92px;
+    padding: 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(125, 211, 252, 0.18);
+    background: rgba(2, 6, 23, 0.42);
+}
+.status-label {
+    color: #93a4bd;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+.status-value {
+    margin-top: 8px;
+    color: #ffffff;
+    font-size: 1.28rem;
+    font-weight: 950;
+}
+.status-positive {
+    color: #86efac;
+}
+.status-warning {
+    color: #fde68a;
+}
+.market-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(140px, 1fr));
+    gap: 12px;
+    margin: 8px 0 20px 0;
+}
+.market-widget {
+    padding: 14px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background:
+        linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(15, 23, 42, 0.7));
+    box-shadow: 0 14px 34px rgba(2, 6, 23, 0.24);
+}
+.market-symbol {
+    color: #a8b3c7;
+    font-size: 0.78rem;
+    font-weight: 900;
+}
+.market-number {
+    margin-top: 8px;
+    color: #ffffff;
+    font-size: 1.45rem;
+    line-height: 1.1;
+    font-weight: 950;
+}
+.market-note {
+    margin-top: 6px;
+    color: #86efac;
+    font-size: 0.82rem;
+    font-weight: 800;
 }
 
 [data-testid="stAlert"] {
@@ -672,9 +820,15 @@ iframe {
     border-radius: 8px;
     padding: 16px 18px;
     background:
-        linear-gradient(135deg, rgba(56, 189, 248, 0.13), rgba(15, 23, 42, 0.74));
+        linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(15, 23, 42, 0.76) 58%, rgba(34, 197, 94, 0.08));
     box-shadow: 0 14px 34px rgba(2, 6, 23, 0.24);
     animation: fadeSlideIn 220ms ease-out;
+    transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.measurement-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(125, 211, 252, 0.42);
+    box-shadow: 0 18px 42px rgba(14, 165, 233, 0.16);
 }
 .measurement-label {
     color: #a8b3c7;
@@ -695,6 +849,12 @@ iframe {
     margin-left: 4px;
 }
 @media (max-width: 1100px) {
+    .app-hero {
+        grid-template-columns: 1fr;
+    }
+    .market-strip {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+    }
     .measurement-grid {
         grid-template-columns: repeat(2, minmax(150px, 1fr));
     }
@@ -742,6 +902,88 @@ def render_measurement_snapshot(chicken_id: str, chicken: dict | None) -> None:
             """
         )
     st.markdown(f"<div class='measurement-grid'>{''.join(cards)}</div>", unsafe_allow_html=True)
+
+
+def render_dashboard_header() -> None:
+    df = get_all_chickens_df()
+    total_count = len(df)
+    measured_count = 0
+    pass_count = 0
+    standby_count = 0
+    if not df.empty:
+        measurement_columns = ["weight_g", "comb_area_cm2", "shank_width_cm", "shank_length_cm"]
+        existing_measurement_columns = [column for column in measurement_columns if column in df.columns]
+        if existing_measurement_columns:
+            measured_count = int(df[existing_measurement_columns].notna().all(axis=1).sum())
+        pass_count = int((df.get("grade_result") == GRADE_PASS).sum()) if "grade_result" in df else 0
+        standby_count = int((df.get("grade_result") == GRADE_STANDBY).sum()) if "grade_result" in df else 0
+    measured_rate = (measured_count / total_count * 100) if total_count else 0
+    config_state = "已設定" if get_latest_grading_config() else "待設定"
+    config_class = "status-positive" if config_state == "已設定" else "status-warning"
+    st.markdown(
+        f"""
+        <section class="app-hero">
+            <div>
+                <div class="hero-eyebrow">LIVE FIELD GRADING SYSTEM</div>
+                <div class="hero-title">紅羽土雞表型分級系統</div>
+                <div class="hero-copy">
+                    即時整合 QR 掃描、RS485 秤重、YOLO segmentation、SQLite 資料庫與 Arduino 燈號控制。
+                    重要量測數據集中顯示，現場操作更直覺、判定更穩定。
+                </div>
+                <div class="hero-actions">
+                    <div class="hero-chip">Local-first Streamlit UI</div>
+                    <div class="hero-chip">YOLO segmentation</div>
+                    <div class="hero-chip">RS485 scale input</div>
+                    <div class="hero-chip">Three-level grading</div>
+                </div>
+            </div>
+            <div class="hero-panel">
+                <div class="hero-panel-title">System Analytics</div>
+                <div class="status-row">
+                    <div class="status-widget">
+                        <div class="status-label">TOTAL RECORDS</div>
+                        <div class="status-value">{total_count}</div>
+                    </div>
+                    <div class="status-widget">
+                        <div class="status-label">MEASURED</div>
+                        <div class="status-value status-positive">{measured_rate:.1f}%</div>
+                    </div>
+                    <div class="status-widget">
+                        <div class="status-label">PASS / STANDBY</div>
+                        <div class="status-value">{pass_count} / {standby_count}</div>
+                    </div>
+                    <div class="status-widget">
+                        <div class="status-label">THRESHOLD CONFIG</div>
+                        <div class="status-value {config_class}">{config_state}</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <section class="market-strip">
+            <div class="market-widget">
+                <div class="market-symbol">WEIGHT STREAM</div>
+                <div class="market-number">2 sec</div>
+                <div class="market-note">rolling average</div>
+            </div>
+            <div class="market-widget">
+                <div class="market-symbol">INFERENCE BATCH</div>
+                <div class="market-number">10</div>
+                <div class="market-note">frames per run</div>
+            </div>
+            <div class="market-widget">
+                <div class="market-symbol">OUTPUT LEVELS</div>
+                <div class="market-number">3</div>
+                <div class="market-note">pass / standby / fail</div>
+            </div>
+            <div class="market-widget">
+                <div class="market-symbol">LIGHT CONTROL</div>
+                <div class="market-number">{FINAL_LIGHT_SECONDS:.0f}s</div>
+                <div class="market-note">auto off window</div>
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def image_data_uri(image_path: Path) -> str:
@@ -1738,8 +1980,7 @@ def final_scan_page() -> None:
 
 
 def main() -> None:
-    st.title("紅羽土雞表型分級系統")
-    st.caption("掃描雞隻 QR code，根據設定門檻分級。")
+    render_dashboard_header()
 
     pages = {
         "硬體連接設定": hardware_settings_page,
