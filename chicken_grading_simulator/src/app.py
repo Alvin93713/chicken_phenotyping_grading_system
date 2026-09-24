@@ -406,37 +406,209 @@ def install_p_page_cycle_hotkey(page_names: list[str], current_page: str) -> Non
 
 LIGHT_CSS = """
 <style>
+@keyframes fadeSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+@keyframes softPulse {
+    0%, 100% {
+        transform: scale(1);
+        filter: brightness(1);
+    }
+    50% {
+        transform: scale(1.035);
+        filter: brightness(1.18);
+    }
+}
+@keyframes glowSweep {
+    0% {
+        background-position: 0% 50%;
+    }
+    100% {
+        background-position: 100% 50%;
+    }
+}
+
+:root {
+    --surface: rgba(17, 24, 39, 0.72);
+    --surface-strong: rgba(15, 23, 42, 0.92);
+    --border: rgba(148, 163, 184, 0.25);
+    --text-muted: #a8b3c7;
+    --accent: #38bdf8;
+    --accent-2: #22c55e;
+    --warning: #facc15;
+    --danger: #ef4444;
+}
+
+.stApp {
+    background:
+        radial-gradient(circle at 12% 8%, rgba(56, 189, 248, 0.14), transparent 28%),
+        radial-gradient(circle at 88% 4%, rgba(34, 197, 94, 0.12), transparent 24%),
+        linear-gradient(135deg, #070b12 0%, #0b1120 45%, #111827 100%);
+}
+
+.block-container {
+    max-width: 1680px;
+    padding-top: 2.25rem;
+    padding-bottom: 3rem;
+}
+
+[data-testid="stHeading"] h1 {
+    letter-spacing: 0;
+    font-size: 2.85rem;
+    line-height: 1.12;
+    background: linear-gradient(90deg, #ffffff 0%, #c7d2fe 42%, #7dd3fc 100%);
+    -webkit-background-clip: text;
+    color: transparent;
+}
+
+[data-testid="stHeading"] h2 {
+    letter-spacing: 0;
+    font-size: 2.15rem;
+    line-height: 1.2;
+    color: #f8fafc;
+}
+
+[data-testid="stHeading"] h3 {
+    letter-spacing: 0;
+    color: #e5e7eb;
+}
+
+[data-testid="stCaptionContainer"],
+[data-testid="stMarkdownContainer"] p {
+    color: var(--text-muted);
+}
+
+[data-testid="stAlert"] {
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    animation: fadeSlideIn 180ms ease-out;
+}
+
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015)),
+        var(--surface);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+    animation: fadeSlideIn 220ms ease-out;
+}
+
+[data-testid="stMetric"] {
+    min-height: 118px;
+    padding: 18px 20px;
+    border-radius: 8px;
+    border: 1px solid rgba(125, 211, 252, 0.22);
+    background:
+        linear-gradient(135deg, rgba(14, 165, 233, 0.18), rgba(15, 23, 42, 0.42)),
+        rgba(15, 23, 42, 0.76);
+    box-shadow: 0 16px 36px rgba(2, 6, 23, 0.34);
+}
+
+[data-testid="stMetricLabel"] {
+    color: #cbd5e1;
+    font-weight: 700;
+}
+
+[data-testid="stMetricValue"] {
+    color: #ffffff;
+    font-size: 2.25rem;
+    font-weight: 800;
+}
+
+[data-testid="stButton"] button,
+[data-testid="stFormSubmitButton"] button,
+[data-testid="stDownloadButton"] button {
+    border-radius: 8px;
+    min-height: 3rem;
+    font-weight: 800;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    background:
+        linear-gradient(90deg, rgba(239, 68, 68, 0.98), rgba(248, 113, 113, 0.96), rgba(239, 68, 68, 0.98));
+    background-size: 180% 100%;
+    color: white;
+    box-shadow: 0 14px 32px rgba(239, 68, 68, 0.22);
+    transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+}
+
+[data-testid="stButton"] button:hover,
+[data-testid="stFormSubmitButton"] button:hover,
+[data-testid="stDownloadButton"] button:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    box-shadow: 0 18px 40px rgba(239, 68, 68, 0.32);
+    animation: glowSweep 1200ms ease infinite alternate;
+}
+
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+    border-radius: 8px;
+    border-color: rgba(148, 163, 184, 0.24);
+    background-color: rgba(15, 23, 42, 0.84);
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 18px 42px rgba(2, 6, 23, 0.24);
+}
+
 .light-panel {
     display: flex;
     align-items: center;
     gap: 24px;
-    padding: 24px 0;
+    padding: 26px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)),
+        rgba(15, 23, 42, 0.84);
+    box-shadow: 0 18px 52px rgba(2, 6, 23, 0.35);
+    animation: fadeSlideIn 220ms ease-out;
 }
 .light-circle {
     width: 156px;
     height: 156px;
     border-radius: 50%;
     border: 8px solid rgba(0, 0, 0, 0.12);
-    box-shadow: inset 0 10px 26px rgba(255,255,255,0.55), 0 10px 26px rgba(0,0,0,0.14);
+    box-shadow: inset 0 10px 26px rgba(255,255,255,0.55), 0 10px 34px rgba(0,0,0,0.28);
+    animation: softPulse 1500ms ease-in-out infinite;
 }
-.light-green { background: #16a34a; }
-.light-yellow { background: #facc15; }
-.light-red { background: #dc2626; }
+.light-green { background: #16a34a; box-shadow: inset 0 10px 26px rgba(255,255,255,0.55), 0 0 44px rgba(34, 197, 94, 0.62); }
+.light-yellow { background: #facc15; box-shadow: inset 0 10px 26px rgba(255,255,255,0.55), 0 0 44px rgba(250, 204, 21, 0.58); }
+.light-red { background: #dc2626; box-shadow: inset 0 10px 26px rgba(255,255,255,0.55), 0 0 44px rgba(239, 68, 68, 0.62); }
 .light-gray { background: #9ca3af; }
 .light-text {
-    font-size: 28px;
-    font-weight: 700;
+    font-size: 36px;
+    font-weight: 900;
     line-height: 1.35;
+    color: #ffffff;
 }
 .status-note {
-    color: #4b5563;
+    color: #cbd5e1;
     font-size: 16px;
     margin-top: 8px;
 }
 [data-testid="stSegmentedControl"] button {
-    font-size: 1.5rem;
-    min-height: 3rem;
-    padding: 0.5rem 1rem;
+    font-size: 1.18rem;
+    min-height: 3.3rem;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    font-weight: 800;
+    transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+[data-testid="stSegmentedControl"] button:hover {
+    transform: translateY(-1px);
+    border-color: rgba(125, 211, 252, 0.55);
 }
 [data-testid="stCameraInput"] {
     width: 100% !important;
@@ -478,12 +650,54 @@ iframe {
     border-radius: 8px;
     padding: 16px;
     margin-bottom: 18px;
+    background: linear-gradient(135deg, rgba(22, 163, 74, 0.12), rgba(15, 23, 42, 0.62));
+    box-shadow: 0 18px 44px rgba(22, 163, 74, 0.12);
 }
 .st-key-standby_threshold_block {
     border: 4px solid #facc15;
     border-radius: 8px;
     padding: 16px;
     margin-bottom: 18px;
+    background: linear-gradient(135deg, rgba(250, 204, 21, 0.12), rgba(15, 23, 42, 0.62));
+    box-shadow: 0 18px 44px rgba(250, 204, 21, 0.12);
+}
+.measurement-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(150px, 1fr));
+    gap: 14px;
+    margin: 18px 0 18px 0;
+}
+.measurement-card {
+    border: 1px solid rgba(125, 211, 252, 0.22);
+    border-radius: 8px;
+    padding: 16px 18px;
+    background:
+        linear-gradient(135deg, rgba(56, 189, 248, 0.13), rgba(15, 23, 42, 0.74));
+    box-shadow: 0 14px 34px rgba(2, 6, 23, 0.24);
+    animation: fadeSlideIn 220ms ease-out;
+}
+.measurement-label {
+    color: #a8b3c7;
+    font-size: 0.88rem;
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+.measurement-value {
+    color: #ffffff;
+    font-size: 1.75rem;
+    line-height: 1.15;
+    font-weight: 900;
+}
+.measurement-unit {
+    color: #93c5fd;
+    font-size: 0.95rem;
+    font-weight: 800;
+    margin-left: 4px;
+}
+@media (max-width: 1100px) {
+    .measurement-grid {
+        grid-template-columns: repeat(2, minmax(150px, 1fr));
+    }
 }
 </style>
 """
@@ -495,6 +709,39 @@ def show_data_table(hide_result_columns: bool = False) -> None:
     if hide_result_columns:
         df = df.drop(columns=["grade_result", "light_result"], errors="ignore")
     st.dataframe(df, use_container_width=True, hide_index=True)
+
+
+def display_value(value, digits: int = 2) -> str:
+    if value is None or pd.isna(value) or value == "":
+        return "-"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:.{digits}f}"
+
+
+def render_measurement_snapshot(chicken_id: str, chicken: dict | None) -> None:
+    values = {
+        "chicken ID": (chicken_id, ""),
+        "體重": (display_value(chicken.get("weight_g") if chicken else None, digits=1), "g"),
+        "雞冠面積": (display_value(chicken.get("comb_area_cm2") if chicken else None, digits=2), "cm²"),
+        "腳脛寬度": (display_value(chicken.get("shank_width_cm") if chicken else None, digits=2), "cm"),
+        "腳脛長度": (display_value(chicken.get("shank_length_cm") if chicken else None, digits=2), "cm"),
+    }
+    cards = []
+    for label, (value, unit) in values.items():
+        cards.append(
+            f"""
+            <div class="measurement-card">
+                <div class="measurement-label">{label}</div>
+                <div class="measurement-value">{value}<span class="measurement-unit">{unit}</span></div>
+            </div>
+            """
+        )
+    st.markdown(f"<div class='measurement-grid'>{''.join(cards)}</div>", unsafe_allow_html=True)
 
 
 def image_data_uri(image_path: Path) -> str:
@@ -1086,6 +1333,7 @@ def phenotype_entry_page() -> None:
         st.success(f"已選擇 chicken ID：{query_id}")
     else:
         st.info(f"資料庫尚無 chicken ID：{query_id}，儲存後會新增此雞隻。")
+    render_measurement_snapshot(query_id, selected)
 
     scale_port = default_scale_port()
     live_scale_panel(scale_port, window_seconds=2.0)
