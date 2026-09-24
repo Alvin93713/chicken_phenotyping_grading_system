@@ -28,6 +28,13 @@ from database import (
     update_grading_result,
 )
 from arduino_control import commands_for_grade, list_serial_ports, reconnect_arduino, send_arduino_commands
+from scale_control import (
+    SCALE_BAUD_RATE,
+    append_recent_scale_samples,
+    average_recent_samples,
+    read_scale_average,
+    read_scale_samples,
+)
 from grading import (
     FEATURE_COLUMNS,
     GRADE_FAIL,
@@ -181,10 +188,65 @@ def install_scanner_input_autofocus() -> None:
         <script>
         (() => {
             const autofocusWindowMs = 600000;
+            const userPauseMs = 3500;
             const startedAt = Date.now();
+            const parentDocument = window.parent.document;
+            const parentWindow = window.parent;
+            if (parentWindow.__chickenScannerAutofocusPointerHandler) {
+                parentDocument.removeEventListener(
+                    "pointerdown",
+                    parentWindow.__chickenScannerAutofocusPointerHandler,
+                    true
+                );
+            }
+            if (parentWindow.__chickenScannerAutofocusKeyHandler) {
+                parentDocument.removeEventListener(
+                    "keydown",
+                    parentWindow.__chickenScannerAutofocusKeyHandler,
+                    true
+                );
+            }
+            parentWindow.__chickenScannerAutofocusPausedUntil =
+                parentWindow.__chickenScannerAutofocusPausedUntil || 0;
+            const isScannerInput = (element) =>
+                element &&
+                element.matches &&
+                element.matches('input:not([type="file"])') &&
+                (element.getAttribute("placeholder") || "").trim().toUpperCase() === "C001";
+            const pauseAutofocus = () => {
+                parentWindow.__chickenScannerAutofocusPausedUntil = Date.now() + userPauseMs;
+            };
+            const pointerHandler = (event) => {
+                if (!isScannerInput(event.target)) {
+                    pauseAutofocus();
+                }
+            };
+            const keyHandler = (event) => {
+                const active = parentDocument.activeElement;
+                if (isScannerInput(active)) {
+                    return;
+                }
+                if (event.key === "Tab" || event.key === "Enter" || event.key === "Escape") {
+                    pauseAutofocus();
+                }
+            };
+            parentWindow.__chickenScannerAutofocusPointerHandler = pointerHandler;
+            parentWindow.__chickenScannerAutofocusKeyHandler = keyHandler;
+            parentDocument.addEventListener("pointerdown", pointerHandler, true);
+            parentDocument.addEventListener("keydown", keyHandler, true);
             const focusScannerInput = () => {
                 try {
-                    const parentDocument = window.parent.document;
+                    if (Date.now() < parentWindow.__chickenScannerAutofocusPausedUntil) {
+                        return false;
+                    }
+                    const active = parentDocument.activeElement;
+                    const expandedCombobox = parentDocument.querySelector('[role="combobox"][aria-expanded="true"]');
+                    if (
+                        expandedCombobox ||
+                        (active && !isScannerInput(active) && active !== parentDocument.body)
+                    ) {
+                        return false;
+                    }
                     const inputs = Array.from(parentDocument.querySelectorAll('input:not([type="file"])'));
                     const target = inputs.find((input) =>
                         !input.disabled &&
@@ -538,6 +600,31 @@ def default_arduino_port_index(port_labels: list[str], default_port: str) -> int
     return 0
 
 
+def default_scale_port() -> str:
+    existing_port = str(st.session_state.get("scale_serial_port", "") or "").strip()
+    if existing_port:
+        return existing_port
+    ports = list_serial_ports()
+    preferred_keywords = ("ft232", "rs485", "usb serial", "uart", "serial")
+    for port in ports:
+        label = port.label.lower()
+        if any(keyword in label for keyword in preferred_keywords) and "leonardo" not in label:
+            return port.device
+    return ""
+
+
+def default_scale_port_index(port_labels: list[str], default_port: str) -> int:
+    for index, label in enumerate(port_labels):
+        if label.startswith(f"{default_port} ") or label == default_port:
+            return index
+    preferred_keywords = ("ft232", "rs485", "usb serial", "uart", "serial")
+    for index, label in enumerate(port_labels):
+        lowered = label.lower()
+        if any(keyword in lowered for keyword in preferred_keywords) and "leonardo" not in lowered:
+            return index
+    return 0
+
+
 def grade_with_latest_database_thresholds(chicken: dict) -> tuple[str | None, str | None, str]:
     config = get_latest_grading_config()
     if not config:
@@ -602,7 +689,7 @@ def render_current_thresholds() -> None:
 
 def hardware_settings_page() -> None:
     st.header("硬體連接設定")
-    st.caption("設定掃碼器測試欄位與 Arduino 燈號 COM。掃碼器若為 USB HID 模式，通常等同鍵盤輸入，不需要另外指定 COM。")
+    st.caption("設定掃碼器測試欄位、Arduino 燈號 COM 與 RS485/USB 秤重設備。掃碼器若為 USB HID 模式，通常等同鍵盤輸入，不需要另外指定 COM。")
 
     with st.container(border=True):
         st.subheader("掃碼器測試")
@@ -679,6 +766,60 @@ def hardware_settings_page() -> None:
 
         if hardware_enabled and arduino_port:
             st.info(f"目前燈號 COM：{arduino_port}")
+
+    with st.container(border=True):
+        st.subheader("秤重設備測試")
+        st.caption(f"秤重設備設定：RS485 轉 USB，{SCALE_BAUD_RATE} bps，封包格式為 0x02 + ASCII 克數 + 0x03。")
+        ports = list_serial_ports()
+        port_labels = [port.label for port in ports]
+        port_devices = {port.label: port.device for port in ports}
+        default_port = st.session_state.get("scale_serial_port", "")
+        if ports:
+            default_index = default_scale_port_index(port_labels, default_port)
+            selected_label = st.selectbox(
+                "秤重設備 serial port",
+                port_labels,
+                index=default_index,
+                key="hardware_scale_serial_label",
+            )
+            scale_port = port_devices[selected_label]
+        else:
+            scale_port = st.text_input(
+                "秤重設備 serial port",
+                value=default_port,
+                placeholder="例如 COM6 或 /dev/ttyUSB0",
+                key="hardware_scale_serial_port_input",
+            ).strip()
+        st.session_state.scale_serial_port = scale_port
+
+        scale_test_col1, scale_test_col2 = st.columns(2)
+        if scale_test_col1.button("測試秤重讀值", use_container_width=True, key="hardware_test_scale"):
+            if not scale_port:
+                st.warning("請先選擇秤重設備 serial port。")
+            else:
+                try:
+                    result = read_scale_average(scale_port, duration_seconds=2.0)
+                    if result.average_g is None:
+                        detail = f" 原始封包：{', '.join(result.raw_packets)}" if result.raw_packets else ""
+                        errors = f" 錯誤：{'; '.join(result.errors)}" if result.errors else ""
+                        st.warning(f"2 秒內沒有取得有效重量。{detail}{errors}")
+                    else:
+                        st.success(
+                            f"2 秒平均重量：{result.average_g:.1f} g；"
+                            f"最新重量：{result.latest_g} g；樣本數：{len(result.samples)}"
+                        )
+                        if result.raw_packets:
+                            st.caption(f"原始封包：{', '.join(result.raw_packets[-5:])}")
+                        if result.errors:
+                            st.warning("；".join(result.errors))
+                except Exception as exc:
+                    st.error(f"秤重設備連線失敗：{exc}")
+        if scale_test_col2.button("清除秤重即時紀錄", use_container_width=True, key="hardware_clear_scale_history"):
+            st.session_state.scale_recent_samples = []
+            st.success("已清除秤重即時紀錄。")
+
+        if scale_port:
+            st.info(f"目前秤重設備 COM：{scale_port}")
 
 
 def commit_scanner_input(input_key: str, confirmed_key: str) -> None:
@@ -861,9 +1002,37 @@ def scale_calibration_section() -> None:
             st.warning("找不到校正照片，請重新拍攝。")
 
 
+@st.fragment(run_every=0.5)
+def live_scale_panel(scale_port: str, window_seconds: float = 2.0) -> None:
+    st.subheader("即時秤重")
+    if not scale_port:
+        st.info("尚未設定秤重設備 serial port，請先到「硬體連接設定」選擇秤重設備。")
+        st.session_state.scale_recent_samples = []
+        return
+
+    history = st.session_state.get("scale_recent_samples", [])
+    try:
+        result = read_scale_samples(scale_port, duration_seconds=0.25)
+        history = append_recent_scale_samples(history, result.samples, window_seconds=window_seconds)
+        st.session_state.scale_recent_samples = history
+        average_g = average_recent_samples(history)
+
+        metric_col1, metric_col2, metric_col3 = st.columns(3)
+        metric_col1.metric("最新重量 (g)", "-" if result.latest_g is None else f"{result.latest_g}")
+        metric_col2.metric(f"{window_seconds:.0f} 秒平均 (g)", "-" if average_g is None else f"{average_g:.1f}")
+        metric_col3.metric("有效樣本數", str(len(history)))
+        if result.raw_packets:
+            st.caption(f"最近封包：{', '.join(result.raw_packets[-3:])}")
+        if result.errors:
+            st.warning("；".join(result.errors))
+    except Exception as exc:
+        st.session_state.scale_recent_samples = history
+        st.error(f"秤重設備讀取失敗：{exc}")
+
+
 def phenotype_entry_page() -> None:
-    st.header("一、表型資料輸入")
-    st.caption("確認 chicken ID 後，輸入重量並建立背景推論任務；前一隻雞推論時，可繼續掃描下一隻。")
+    st.header("表型資料輸入")
+    st.caption("確認 chicken ID 後，系統會讀取秤重設備並建立背景推論任務；前一隻雞推論時，可繼續掃描下一隻。")
     st.info("量測設定：錄影 1 秒，固定推論 10 張照片。")
     install_r_submit_hotkey("計算雞冠及腳脛數據")
 
@@ -908,6 +1077,9 @@ def phenotype_entry_page() -> None:
         st.info("請掃描 QR code，或手動輸入 chicken ID 後按 Enter。")
         render_inference_queue_panel()
         return
+    if st.session_state.get("scale_active_chicken_id") != query_id:
+        st.session_state.scale_active_chicken_id = query_id
+        st.session_state.scale_recent_samples = []
 
     selected = get_chicken(query_id)
     if selected:
@@ -915,14 +1087,18 @@ def phenotype_entry_page() -> None:
     else:
         st.info(f"資料庫尚無 chicken ID：{query_id}，儲存後會新增此雞隻。")
 
+    scale_port = default_scale_port()
+    live_scale_panel(scale_port, window_seconds=2.0)
+
     with st.form("phenotype_entry_form"):
         st.text_input("chicken ID", value=query_id, disabled=True)
         col1, col2, col3 = st.columns(3)
-        weight_g = col1.number_input(
-            "重量 weight_g (g)",
+        manual_weight_g = col1.number_input(
+            "手動重量備援 weight_g (g)",
             min_value=0.0,
             value=number_input_value(selected["weight_g"]) if selected else 0.0,
             step=10.0,
+            help="正常流程會在按下推論時讀取秤重設備 2 秒平均；只有秤重設備未設定或讀不到有效重量時，才使用此欄位。",
         )
         cm_per_pixel = col2.number_input(
             "cm_per_pixel",
@@ -941,21 +1117,35 @@ def phenotype_entry_page() -> None:
 
     if submitted:
         try:
+            scale_result = None
+            final_weight_g = float(manual_weight_g)
+            if scale_port:
+                scale_result = read_scale_average(scale_port, duration_seconds=2.0)
+                if scale_result.average_g is not None:
+                    final_weight_g = float(scale_result.average_g)
+                    st.session_state.scale_recent_samples = []
+                elif scale_result.errors:
+                    st.warning("秤重設備未取得有效重量，改用手動重量備援。錯誤：" + "；".join(scale_result.errors))
+                else:
+                    st.warning("秤重設備 2 秒內沒有取得有效重量，改用手動重量備援。")
+            else:
+                st.warning("尚未設定秤重設備 serial port，改用手動重量備援。")
+
             st.session_state.phenotype_cm_per_pixel = float(cm_per_pixel)
             if selected:
                 update_chicken(
                     query_id,
-                    weight_g,
+                    final_weight_g,
                     selected["comb_area_cm2"],
                     selected.get("shank_width_cm", 0.0),
                     selected.get("shank_length_cm", 0.0),
                 )
             else:
-                add_chicken(query_id, weight_g, 0.0, 0.0, 0.0)
+                add_chicken(query_id, final_weight_g, 0.0, 0.0, 0.0)
 
             job_id = enqueue_inference_job(
                 chicken_id=query_id,
-                weight_g=float(weight_g),
+                weight_g=float(final_weight_g),
                 camera_index=int(camera_index),
                 confidence_threshold=float(confidence_threshold),
                 frame_stride=1,
@@ -984,7 +1174,7 @@ def phenotype_entry_page() -> None:
 
 
 def data_management_page() -> None:
-    st.header("二、雞隻資料管理")
+    st.header("雞隻資料管理")
 
     sample_col, import_col, export_col = st.columns(3)
     with sample_col:
@@ -1065,7 +1255,7 @@ def data_management_page() -> None:
 
 
 def grading_page() -> None:
-    st.header("三、分級設定與執行")
+    st.header("分級設定與執行")
     st.caption("設定各表型通過門檻與備用門檻後，系統會更新資料庫中的通過、備用、不通過結果。")
     render_current_thresholds()
 
@@ -1260,7 +1450,7 @@ def render_single_chicken_row(query_id: str) -> None:
 
 
 def final_scan_page() -> None:
-    st.header("四、再次掃描 QR code 與亮燈判定")
+    st.header("再次掃描 QR code 與亮燈判定")
     st.caption("完成表型資料輸入與分級後，再次掃描既有 QR code，依分級結果顯示綠燈、黃燈或紅燈。")
 
     query_id = resolve_qrcode_input("final_scan", auto_focus=True, scanner_mode=True)
