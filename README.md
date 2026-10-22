@@ -69,6 +69,42 @@ git pull --ff-only origin codex/dual-camera-snapshot
 git log -1 --oneline
 ```
 
+### One-time Ubuntu / Jetson environment
+
+Grant camera and serial-device access, then sign out and sign in again:
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip libgl1 libglib2.0-0 libzbar0 v4l-utils usbutils
+sudo usermod -aG dialout,video "$USER"
+```
+
+For a regular x86_64 Ubuntu PC:
+
+```bash
+cd /home/ubuntu/Documents/chicken_grading_system/chicken_grading_simulator
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+For Jetson Orin, use the NVIDIA PyTorch and OpenCV supplied for the installed
+JetPack release. Make the virtual environment inherit those system packages:
+
+```bash
+cd /home/ubuntu/Documents/chicken_grading_system/chicken_grading_simulator
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-jetson.txt
+python -m pip install --no-deps ultralytics==8.4.90 ultralytics-thop==2.0.20
+python scripts/check_ubuntu_runtime.py
+```
+
+Do not install generic PyPI `torch`, `torchvision`, or `opencv-python` over the
+JetPack builds. Their CUDA and camera support must match the JetPack release.
+
 If `git status --short` reports modified source files, review or back them up
 before pulling. Do not use `git reset --hard` on a field system containing
 measurement data.
