@@ -1,0 +1,17 @@
+# Jetson Orin uses the PyTorch, torchvision, CUDA and OpenCV builds supplied by
+# its installed JetPack release. Install this file first, then install
+# Ultralytics without dependency replacement:
+#   python -m pip install -r requirements-jetson.txt
+#   python -m pip install --no-deps ultralytics==8.4.90 ultralytics-thop==2.0.20
+streamlit==1.59.1
+streamlit-image-coordinates==0.4.0
+pandas>=2.2,<3
+numpy>=1.26,<2
+pillow>=10,<13
+pyzbar==0.1.9
+qrcode==8.2
+tqdm==4.68.4
+pyserial==3.5
+altair==6.2.2
+pyarrow>=15,<25
+matplotlib>=3.8,<4

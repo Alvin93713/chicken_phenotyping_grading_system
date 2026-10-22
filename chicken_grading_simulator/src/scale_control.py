@@ -12,6 +12,7 @@ Examples:
 from __future__ import annotations
 
 import statistics
+import threading
 import time
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
@@ -21,6 +22,7 @@ SCALE_BAUD_RATE = 19200
 STX = 0x02
 ETX = 0x03
 ERROR_CODE = "9999"
+_SERIAL_READ_LOCK = threading.Lock()
 
 
 @dataclass
@@ -80,18 +82,20 @@ def _read_serial_bytes(port: str, duration_seconds: float, timeout: float = 0.1)
 
     chunks: List[bytes] = []
     deadline = time.monotonic() + max(0.05, float(duration_seconds))
-    with serial.Serial(
-        port,
-        SCALE_BAUD_RATE,
-        timeout=timeout,
-        write_timeout=timeout,
-    ) as connection:
-        connection.reset_input_buffer()
-        while time.monotonic() < deadline:
-            waiting = connection.in_waiting
-            chunk = connection.read(waiting or 1)
-            if chunk:
-                chunks.append(chunk)
+    # Only one Streamlit fragment may own the scale adapter at a time.
+    with _SERIAL_READ_LOCK:
+        with serial.Serial(
+            port,
+            SCALE_BAUD_RATE,
+            timeout=timeout,
+            write_timeout=timeout,
+        ) as connection:
+            connection.reset_input_buffer()
+            while time.monotonic() < deadline:
+                waiting = connection.in_waiting
+                chunk = connection.read(waiting or 1)
+                if chunk:
+                    chunks.append(chunk)
     return b"".join(chunks)
 
 

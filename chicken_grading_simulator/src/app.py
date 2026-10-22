@@ -410,6 +410,11 @@ LIGHT_CSS = """
     --content-width: 1500px;
     --panel-border: rgba(128, 139, 154, 0.32);
 }
+.st-key-dual_preview_comb img, .st-key-dual_preview_shank img {
+    max-height: 30vh;
+    object-fit: contain;
+    background: #000;
+}
 header[data-testid="stHeader"] {
     height: 2rem;
     background: transparent;
@@ -459,34 +464,36 @@ header[data-testid="stHeader"] {
 .light-panel {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 10px 0;
+    gap: 20px;
+    padding: 14px 0;
 }
 .light-circle {
-    width: 92px;
-    height: 92px;
+    width: 112px;
+    height: 112px;
     border-radius: 50%;
-    border: 6px solid rgba(0, 0, 0, 0.12);
-    box-shadow: inset 0 7px 18px rgba(255,255,255,0.5), 0 7px 18px rgba(0,0,0,0.14);
+    border: 7px solid rgba(0, 0, 0, 0.12);
+    box-shadow: inset 0 8px 22px rgba(255,255,255,0.5), 0 8px 22px rgba(0,0,0,0.16);
 }
 .light-green { background: #16a34a; }
 .light-yellow { background: #facc15; }
 .light-red { background: #dc2626; }
 .light-gray { background: #9ca3af; }
 .light-text {
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 30px;
+    font-weight: 800;
     line-height: 1.35;
 }
 .status-note {
     color: #4b5563;
-    font-size: 16px;
+    font-size: 18px;
+    font-weight: 650;
     margin-top: 8px;
 }
 [data-testid="stSegmentedControl"] button {
-    font-size: 0.92rem;
-    min-height: 2.25rem;
-    padding: 0.25rem 0.7rem;
+    font-size: 1rem;
+    font-weight: 650;
+    min-height: 2.65rem;
+    padding: 0.35rem 0.78rem;
     white-space: nowrap;
 }
 [data-testid="stSegmentedControl"] [role="radiogroup"] {
@@ -497,18 +504,57 @@ header[data-testid="stHeader"] {
     margin: 0.2rem 0 0.35rem;
 }
 [data-testid="stAlert"] {
-    padding: 0.5rem 0.75rem;
+    padding: 0.65rem 0.85rem;
+}
+[data-testid="stAlert"] [data-testid="stMarkdownContainer"] p {
+    font-size: 1rem;
+    font-weight: 600;
+}
+[data-testid="stButton"] > button,
+[data-testid="stFormSubmitButton"] > button {
+    min-height: 3rem;
+    padding: 0.55rem 1rem;
+    border-width: 1.5px;
+    font-size: 1.05rem;
+    font-weight: 750;
+}
+[data-testid="stButton"] > button p,
+[data-testid="stFormSubmitButton"] > button p {
+    font-size: 1.05rem;
+    font-weight: 750;
+}
+[data-testid="stButton"] > button[kind="primary"],
+[data-testid="stFormSubmitButton"] > button[kind="primary"] {
+    box-shadow: 0 5px 14px rgba(255, 75, 75, 0.2);
+}
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input {
+    min-height: 3rem;
+    font-size: 1.05rem;
+    font-weight: 650;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+    min-height: 3rem;
+    font-size: 1.02rem;
+    font-weight: 650;
+}
+[data-testid="stWidgetLabel"] p {
+    font-size: 0.9rem;
+    font-weight: 650;
 }
 [data-testid="stMetric"] {
     border: 1px solid var(--panel-border);
     border-radius: 6px;
-    padding: 0.45rem 0.65rem;
+    padding: 0.65rem 0.8rem;
+    min-height: 5.15rem;
 }
 [data-testid="stMetricLabel"] {
-    font-size: 0.78rem;
+    font-size: 0.9rem;
+    font-weight: 650;
 }
 [data-testid="stMetricValue"] {
-    font-size: 1.35rem;
+    font-size: 1.85rem;
+    font-weight: 800;
 }
 [data-testid="stExpander"] details summary {
     min-height: 2.3rem;
@@ -529,20 +575,38 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div {
 .threshold-summary-card {
     border: 1px solid var(--panel-border);
     border-radius: 6px;
-    padding: 0.55rem 0.7rem;
+    padding: 0.7rem 0.8rem;
     text-align: center;
 }
 .threshold-summary-label {
-    font-size: 0.78rem;
+    font-size: 0.88rem;
+    font-weight: 650;
     color: #9ca3af;
 }
 .threshold-summary-value {
-    font-size: 1rem;
-    font-weight: 700;
-    margin-top: 0.15rem;
+    font-size: 1.2rem;
+    font-weight: 800;
+    margin-top: 0.2rem;
 }
 .threshold-summary-disabled {
     opacity: 0.55;
+}
+.summary-stat {
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 0.55rem 0.45rem;
+    text-align: center;
+}
+.summary-stat-label {
+    color: #9ca3af;
+    font-size: 0.82rem;
+    font-weight: 650;
+}
+.summary-stat-value {
+    font-size: 1.55rem;
+    font-weight: 800;
+    line-height: 1.25;
+    margin-top: 0.1rem;
 }
 [data-testid="stCameraInput"] {
     width: 100% !important;
@@ -604,6 +668,10 @@ iframe {
     }
     .threshold-summary-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    [data-testid="stButton"] > button,
+    [data-testid="stFormSubmitButton"] > button {
+        min-height: 2.8rem;
     }
 }
 </style>
@@ -1011,12 +1079,8 @@ def calibration_display_image(image_path: Path, points: list[tuple[int, int]]) -
 
 
 def camera_adjustment_page() -> None:
-    page_heading("相機調整", "確認雞隻側面、雞冠與腳脛皆完整進入畫面。")
-    st.camera_input(
-        "相機即時畫面",
-        key="camera_adjustment_preview",
-        label_visibility="collapsed",
-    )
+    from dual_camera_ui import adjustment_page
+    adjustment_page(page_heading)
 
 
 @st.fragment
@@ -1079,49 +1143,8 @@ def calibration_point_picker(image_path: Path, real_length_cm: float) -> None:
                 st.rerun(scope="fragment")
 
 def scale_calibration_section() -> None:
-    page_heading("比例尺校正", "拍攝比例尺照片，輸入真實長度並依序點選兩端。")
-    install_n_click_button_hotkey("拍攝校正照片")
-
-    st.session_state.setdefault("calibration_points", [])
-    st.session_state.setdefault("calibration_cm_per_pixel", 0.01)
-    st.session_state.setdefault("calibration_click_key_version", 0)
-
-    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 1, 1])
-    calibration_camera_index = ctrl_col1.number_input(
-        "校正 camera ID",
-        min_value=0,
-        max_value=10,
-        value=int(st.session_state.get("calibration_camera_index", 0)),
-        step=1,
-        key="calibration_camera_index",
-    )
-    real_length_cm = ctrl_col2.number_input(
-        "比例尺真實長度 (cm)",
-        min_value=0.001,
-        value=float(st.session_state.get("calibration_real_length_cm", 10.0)),
-        step=0.5,
-        format="%.3f",
-        key="calibration_real_length_cm",
-    )
-    ctrl_col3.markdown("<div style='height: 1.75rem'></div>", unsafe_allow_html=True)
-    if ctrl_col3.button("拍攝校正照片", use_container_width=True):
-        try:
-            image_path = capture_calibration_image(int(calibration_camera_index))
-            st.session_state.calibration_image_path = str(image_path)
-            st.session_state.calibration_points = []
-            st.session_state.calibration_last_click_unix_time = None
-            st.session_state.calibration_click_key_version = 0
-            st.success(f"已拍攝校正照片：{image_path.name}")
-            st.rerun()
-        except Exception as exc:
-            st.error(str(exc))
-
-    if st.session_state.get("calibration_image_path"):
-        image_path = Path(st.session_state.calibration_image_path)
-        if image_path.exists():
-            calibration_point_picker(image_path, float(real_length_cm))
-        else:
-            st.warning("找不到校正照片，請重新拍攝。")
+    from dual_camera_ui import calibration_page
+    calibration_page(page_heading, install_n_click_button_hotkey)
 
 
 @st.fragment(run_every=0.5)
@@ -1130,6 +1153,19 @@ def live_scale_panel(scale_port: str, window_seconds: float = 2.0) -> None:
     if not scale_port:
         st.info("尚未設定秤重設備 serial port，請先到「硬體連接設定」選擇秤重設備。")
         st.session_state.scale_recent_samples = []
+        return
+
+    phase = st.session_state.get("scale_collection_phase", "collecting")
+    if phase == "finalizing":
+        st.info("正在收集本次量測的 2 秒平均重量；完成後將停止秤重並開始雙相機拍攝。")
+        return
+    if phase == "stopped":
+        frozen_weight = st.session_state.get("scale_final_weight_g")
+        sample_count = int(st.session_state.get("scale_final_sample_count", 0) or 0)
+        metric_col1, metric_col2 = st.columns(2)
+        metric_col1.metric("本次最終重量 (g)", "-" if frozen_weight is None else f"{float(frozen_weight):.1f}")
+        metric_col2.metric("最終平均樣本數", str(sample_count))
+        st.caption("本次重量已鎖定，秤重設備已停止收集資料。")
         return
 
     history = st.session_state.get("scale_recent_samples", [])
@@ -1153,159 +1189,8 @@ def live_scale_panel(scale_port: str, window_seconds: float = 2.0) -> None:
 
 
 def phenotype_entry_page() -> None:
-    page_heading(
-        "表型資料輸入",
-        "掃描 chicken ID、即時秤重並建立背景推論任務；前一隻推論時可繼續掃描下一隻。",
-    )
-    install_r_submit_hotkey("計算雞冠及腳脛數據")
-
-    yolo_seg_errors = validate_yolo_seg_assets()
-    if yolo_seg_errors:
-        for error in yolo_seg_errors:
-            st.error(error)
-        return
-
-    if st.session_state.get("phenotype_last_enqueued_job"):
-        st.success(f"已建立背景推論任務：{st.session_state.phenotype_last_enqueued_job}")
-        st.session_state.phenotype_last_enqueued_job = ""
-
-    cm_per_pixel_value = float(
-        st.session_state.get(
-            "phenotype_cm_per_pixel",
-            st.session_state.get("calibration_cm_per_pixel", 0.01),
-        )
-    )
-    setting_col1, setting_col2, setting_col3 = st.columns(3)
-    camera_index = setting_col1.number_input(
-        "camera ID",
-        min_value=0,
-        max_value=10,
-        value=int(st.session_state.get("phenotype_camera_id", 0)),
-        step=1,
-        key="phenotype_camera_id",
-    )
-    confidence_threshold = setting_col2.number_input(
-        "YOLO confidence 門檻",
-        min_value=0.01,
-        max_value=1.0,
-        value=float(st.session_state.get("phenotype_confidence_threshold", 0.5)),
-        step=0.05,
-        key="phenotype_confidence_threshold",
-    )
-    setting_col3.text_input(
-        "目前 cm_per_pixel",
-        value=f"{cm_per_pixel_value:.6f}",
-        disabled=True,
-    )
-
-    query_id = resolve_qrcode_input(
-        "phenotype_entry",
-        auto_focus=True,
-        scanner_mode=True,
-        show_confirmation=False,
-    )
-    if not query_id:
-        st.info("請掃描 QR code，或手動輸入 chicken ID 後按 Enter。")
-        render_inference_queue_panel()
-        return
-    if st.session_state.get("scale_active_chicken_id") != query_id:
-        st.session_state.scale_active_chicken_id = query_id
-        st.session_state.scale_recent_samples = []
-
-    selected = get_chicken(query_id)
-    if not selected:
-        st.info(f"資料庫尚無 chicken ID：{query_id}，儲存後會新增此雞隻。")
-
-    scale_port = default_scale_port()
-    measurement_col, queue_col = st.columns([2, 3], vertical_alignment="top")
-
-    with measurement_col:
-        live_scale_panel(scale_port, window_seconds=2.0)
-
-        with st.form("phenotype_entry_form"):
-            st.caption(f"目前 chicken ID：{query_id}")
-            col1, col2 = st.columns(2)
-            manual_weight_g = col1.number_input(
-                "手動重量備援 (g)",
-                min_value=0.0,
-                value=number_input_value(selected["weight_g"]) if selected else 0.0,
-                step=10.0,
-                help="正常流程會讀取秤重設備 2 秒平均；讀不到有效重量時才使用此欄位。",
-            )
-            cm_per_pixel = col2.number_input(
-                "cm_per_pixel",
-                min_value=0.000001,
-                value=cm_per_pixel_value,
-                step=0.001,
-                format="%.6f",
-                key=f"phenotype_cm_per_pixel_input_{int(st.session_state.get('phenotype_cm_per_pixel_version', 0))}",
-            )
-            st.caption("錄影 1 秒 · 固定推論 10 張照片")
-            submitted = st.form_submit_button("計算雞冠及腳脛數據", type="primary", use_container_width=True)
-
-    with queue_col:
-        completed_job = latest_completed_job_for_chicken(query_id)
-        if completed_job and completed_job.result_row:
-            st.subheader("最近完成結果")
-            st.dataframe(
-                pd.DataFrame([completed_job.result_row]),
-                use_container_width=True,
-                hide_index=True,
-                height=105,
-            )
-            if completed_job.video_id:
-                with st.expander("查看最近推論影格", expanded=False):
-                    show_inference_sample_frames(video_ids=[completed_job.video_id])
-
-        render_inference_queue_panel()
-
-    if submitted:
-        try:
-            scale_result = None
-            final_weight_g = float(manual_weight_g)
-            if scale_port:
-                scale_result = read_scale_average(scale_port, duration_seconds=2.0)
-                if scale_result.average_g is not None:
-                    final_weight_g = float(scale_result.average_g)
-                    st.session_state.scale_recent_samples = []
-                elif scale_result.errors:
-                    st.warning("秤重設備未取得有效重量，改用手動重量備援。錯誤：" + "；".join(scale_result.errors))
-                else:
-                    st.warning("秤重設備 2 秒內沒有取得有效重量，改用手動重量備援。")
-            else:
-                st.warning("尚未設定秤重設備 serial port，改用手動重量備援。")
-
-            st.session_state.phenotype_cm_per_pixel = float(cm_per_pixel)
-            if selected:
-                update_chicken(
-                    query_id,
-                    final_weight_g,
-                    selected["comb_area_cm2"],
-                    selected.get("shank_width_cm", 0.0),
-                    selected.get("shank_length_cm", 0.0),
-                )
-            else:
-                add_chicken(query_id, final_weight_g, 0.0, 0.0, 0.0)
-
-            job_id = enqueue_inference_job(
-                chicken_id=query_id,
-                weight_g=float(final_weight_g),
-                camera_index=int(camera_index),
-                confidence_threshold=float(confidence_threshold),
-                frame_stride=1,
-                cm_per_pixel=float(cm_per_pixel),
-                hardware_enabled=bool(st.session_state.get("arduino_light_enabled", True)),
-                arduino_port=default_arduino_port(),
-                target_photo_count=10,
-            )
-            st.session_state.phenotype_last_enqueued_job = job_id
-            st.session_state.phenotype_entry_confirmed_manual_id = ""
-            st.session_state.phenotype_entry_input_version = int(
-                st.session_state.get("phenotype_entry_input_version", 0)
-            ) + 1
-            st.rerun()
-        except Exception as exc:
-            st.error(str(exc))
+    from dual_camera_ui import phenotype_page
+    phenotype_page(globals())
 
 def data_management_page() -> None:
     page_heading("雞隻資料管理", "集中檢視所有表型資料；新增、修改與刪除操作收納於下方。")
@@ -1483,7 +1368,10 @@ def grading_page() -> None:
             ]
             for col, (label, val) in zip(metric_cols, labels):
                 col.markdown(
-                    f"<div style='text-align:center'><div style='font-weight:600'>{label}</div><div style='font-size:20px'>{val}</div></div>",
+                    f'<div class="summary-stat">'
+                    f'<div class="summary-stat-label">{label}</div>'
+                    f'<div class="summary-stat-value">{val}</div>'
+                    f'</div>',
                     unsafe_allow_html=True,
                 )
             with st.expander("查看本次分級明細", expanded=False):

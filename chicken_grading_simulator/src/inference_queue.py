@@ -20,6 +20,7 @@ from database import (
     update_grading_result,
 )
 from grading import grade_chicken, validate_grading_config
+from dual_camera import infer_pair
 from inference_utils import (
     get_torch_cuda_status,
     record_camera_video,
@@ -66,6 +67,8 @@ class InferenceJob:
     error: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     updated_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    snapshot_paths: Optional[Dict[str, str]] = None
+    snapshot_scales: Optional[Dict[str, float]] = None
 
 
 _jobs: Dict[str, InferenceJob] = {}
@@ -165,6 +168,40 @@ def ensure_worker_running() -> None:
         _worker_thread.start()
 
 
+def enqueue_snapshot_job(chicken_id, weight_g, paths, scales, confidence, hardware_enabled, arduino_port):
+    job = InferenceJob(
+        job_id=uuid4().hex[:12], chicken_id=chicken_id, weight_g=float(weight_g),
+        camera_index=0, confidence_threshold=float(confidence), frame_stride=1,
+        target_photo_count=2, cm_per_pixel=float(scales["comb"]),
+        hardware_enabled=hardware_enabled, arduino_port=arduino_port,
+        snapshot_paths=dict(paths), snapshot_scales=dict(scales),
+        video_id=Path(paths["comb"]).parent.name,
+        video_name=Path(paths["comb"]).parent.name + ".png", progress_total=2,
+    )
+    with _lock:
+        _jobs[job.job_id] = job
+    _queue.put(job.job_id)
+    ensure_worker_running()
+    return job.job_id
+
+
+def _process_snapshot(job):
+    _update_job(job.job_id, status=STATUS_INFERENCING, message="正在推論雙相機照片")
+    measurements = infer_pair(
+        job.snapshot_paths, job.snapshot_scales, job.confidence_threshold,
+        lambda done, total, message: _update_job(job.job_id, progress_completed=done,
+                                                progress_total=total, message=message),
+    )
+    write = update_chicken if get_chicken(job.chicken_id) else add_chicken
+    write(job.chicken_id, job.weight_g, measurements["comb_area_cm2"],
+          measurements["shank_width_cm"], measurements["shank_length_cm"])
+    row = {"chicken_id": job.chicken_id, "weight_g": job.weight_g, **measurements}
+    grade, light, hardware = _run_preliminary_grading_and_light(job, row)
+    _update_job(job.job_id, status=STATUS_COMPLETED, progress_completed=2,
+                message="雙相機推論完成，結果已寫入資料庫", result_row=row,
+                preliminary_grade_result=grade, preliminary_light_result=light, arduino_result=hardware)
+
+
 def _update_job(job_id: str, **changes: object) -> None:
     with _lock:
         job = _jobs[job_id]
@@ -256,10 +293,14 @@ def _worker_loop() -> None:
         try:
             job_id = _queue.get(timeout=0.5)
         except Empty:
-            return
+            continue
         try:
             with _lock:
                 job = _jobs[job_id]
+
+            if job.snapshot_paths is not None:
+                _process_snapshot(job)
+                continue
 
             _prepare_chicken_record(job)
             _update_job(job_id, status=STATUS_RECORDING, message="正在錄製 3 秒影片")

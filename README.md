@@ -19,12 +19,13 @@ The system supports QR-based chicken identification, phenotype data entry, camer
 
 ## Repository Notes
 
-Large runtime assets are intentionally excluded from this repository, including model weights, videos, packaged executables, and inference outputs.
+Videos, packaged executables, and inference outputs are intentionally excluded from this repository. The deployment branch includes the two model files required by the dual-camera workflow.
 
-Required external assets may include:
+Required runtime assets include:
 
-- YOLO segmentation model weights, such as `best.pt`
-- Local camera hardware
+- `chicken_grading_simulator/best.pt` for comb segmentation
+- `chicken_grading_simulator/best_shank.pt` for shank segmentation
+- Two local USB cameras
 - USB QR code scanner
 - Arduino Leonardo
 - 12V power supply + physical light
@@ -63,8 +64,8 @@ cd /home/ubuntu/Documents/chicken_grading_system
 
 git status --short
 git fetch origin
-git switch codex/premium-ui-refresh
-git pull --ff-only origin codex/premium-ui-refresh
+git switch codex/dual-camera-snapshot
+git pull --ff-only origin codex/dual-camera-snapshot
 git log -1 --oneline
 ```
 
@@ -84,6 +85,17 @@ streamlit run src/app.py \
   --browser.gatherUsageStats=false \
   --server.headless=true
 ```
+
+Before starting the service, verify the Python environment, both segmentation
+models, camera devices, and serial devices:
+
+```bash
+python scripts/check_ubuntu_runtime.py
+```
+
+The checker exits with a non-zero status when a required import or model is
+missing. Cameras and serial devices are reported for field verification because
+their device numbers depend on the connected Ubuntu machine.
 
 Open `http://localhost:8501` on the Orin, or use
 `http://<ORIN_IP_ADDRESS>:8501` from another device on the same network.
@@ -118,7 +130,7 @@ cp -a "$DB" "$DB_BACKUP"
 
 TMPDIR=$(mktemp -d)
 git clone \
-  --branch codex/premium-ui-refresh \
+  --branch codex/dual-camera-snapshot \
   --single-branch \
   https://github.com/Alvin93713/chicken_phenotyping_grading_system.git \
   "$TMPDIR/repository"
@@ -136,9 +148,8 @@ git status --short --branch
 git log -1 --oneline
 ```
 
-The repository excludes large model files. Keep the existing YOLO and SAM
-weights under `chicken_grading_simulator/` and
-`chicken_grading_simulator/data/`; the repair does not remove untracked files.
+The dual-camera deployment branch tracks `best.pt` and `best_shank.pt`. Other
+large experimental model weights remain excluded.
 
 ## Intended Use
 
