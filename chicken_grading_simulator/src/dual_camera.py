@@ -2,19 +2,27 @@
 from __future__ import annotations
 
 import atexit
+import base64
 import json
 import math
+import os
 import sys
 import threading
 import time
 from functools import lru_cache
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from inference_utils import BASE_DIR, OUTPUTS_DIR, _mask_sides_px
 
-MODEL_PATHS = {"comb": BASE_DIR / "best.pt", "shank": BASE_DIR / "best_shank.pt"}
+MODEL_PATHS = {"comb": BASE_DIR / "best_comb.pt", "shank": BASE_DIR / "best_shank.pt"}
 ROLES = ("comb", "shank")
+PREVIEW_FPS = 30
+PREVIEW_JPEG_QUALITY = 80
+PREVIEW_PORT = int(os.environ.get("CHICKEN_CAMERA_STREAM_PORT", "8765"))
+REALTIME_INFERENCE_FPS = float(os.environ.get("CHICKEN_REALTIME_INFERENCE_FPS", "15"))
 
 
 class CameraReader:
@@ -63,6 +71,11 @@ class CameraReader:
 
 _readers = {}
 _reader_lock = threading.Lock()
+_preview_server = None
+_preview_server_lock = threading.Lock()
+_inference_readers = {}
+_inference_reader_lock = threading.Lock()
+_model_locks = {role: threading.Lock() for role in ROLES}
 
 
 def reader(index):
@@ -76,6 +89,9 @@ def reader(index):
 
 
 def close_cameras():
+    with _inference_reader_lock:
+        for current in _inference_readers.values():
+            current.stop.set()
     with _reader_lock:
         for current in _readers.values():
             current.stop.set()
@@ -101,6 +117,104 @@ def capture_pair(indices, timeout=3.0):
             error = str(exc)
         time.sleep(0.02)
     raise RuntimeError(f"雙相機拍攝失敗：{error}；未建立推論任務")
+
+
+def encode_preview_jpeg(frame, jpeg_quality=PREVIEW_JPEG_QUALITY):
+    """Encode one preview frame for the browser stream."""
+    import cv2
+
+    ok, encoded = cv2.imencode(
+        ".jpg",
+        frame,
+        [cv2.IMWRITE_JPEG_QUALITY, int(jpeg_quality)],
+    )
+    if not ok:
+        raise RuntimeError("無法編碼相機預覽畫面")
+    return encoded.tobytes()
+
+
+def preview_data_uri(frame, jpeg_quality=PREVIEW_JPEG_QUALITY):
+    """Encode a standalone frame without relying on Streamlit media URLs."""
+    payload = base64.b64encode(encode_preview_jpeg(frame, jpeg_quality)).decode("ascii")
+    return f"data:image/jpeg;base64,{payload}"
+
+
+class _PreviewHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class _PreviewHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.strip("/").split("/")
+        role = None
+        if len(path) == 2 and path[0] == "camera":
+            index_part = path[1]
+        elif len(path) == 3 and path[0] == "inference" and path[1] in ROLES:
+            role = path[1]
+            index_part = path[2]
+        else:
+            self.send_error(404)
+            return
+        try:
+            camera_index = int(index_part.removesuffix(".mjpg"))
+            confidence = float(parse_qs(parsed.query).get("confidence", ["0.25"])[0])
+        except ValueError:
+            self.send_error(400, "Invalid preview parameters")
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.end_headers()
+
+        interval = 1.0 / PREVIEW_FPS
+        try:
+            while True:
+                started = time.monotonic()
+                try:
+                    if role is None:
+                        frame, _ = reader(camera_index).latest()
+                    else:
+                        frame, _ = inference_reader(role, camera_index, confidence).latest()
+                    encoded = encode_preview_jpeg(frame)
+                except RuntimeError:
+                    time.sleep(min(interval, 0.05))
+                    continue
+                self.wfile.write(b"--frame\r\n")
+                self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                self.wfile.write(f"Content-Length: {len(encoded)}\r\n\r\n".encode("ascii"))
+                self.wfile.write(encoded)
+                self.wfile.write(b"\r\n")
+                self.wfile.flush()
+                remaining = interval - (time.monotonic() - started)
+                if remaining > 0:
+                    time.sleep(remaining)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
+
+    def log_message(self, _format, *_args):
+        return
+
+
+def ensure_preview_server():
+    """Start the process-wide MJPEG server and return its TCP port."""
+    global _preview_server
+    with _preview_server_lock:
+        if _preview_server is not None:
+            return PREVIEW_PORT
+        try:
+            server = _PreviewHTTPServer(("0.0.0.0", PREVIEW_PORT), _PreviewHandler)
+        except OSError as exc:
+            raise RuntimeError(f"無法啟動相機預覽串流 port {PREVIEW_PORT}：{exc}") from exc
+        thread = threading.Thread(target=server.serve_forever, name="camera-mjpeg", daemon=True)
+        thread.start()
+        _preview_server = server
+        return PREVIEW_PORT
 
 
 def save_pair(frames, kind="snapshots"):
@@ -147,6 +261,93 @@ def target_classes(model, role):
     return matches
 
 
+def annotate_preview_frame(role, frame, confidence):
+    """Return one YOLO-annotated preview frame without mutating the source frame."""
+    import torch
+
+    model = model_for(role)
+    classes = target_classes(model, role)
+    with _model_locks[role]:
+        result = model.predict(
+            frame,
+            conf=float(confidence),
+            classes=classes,
+            retina_masks=True,
+            device=0 if torch.cuda.is_available() else "cpu",
+            verbose=False,
+        )[0]
+    return result.plot()
+
+
+class InferenceReader:
+    """Continuously refresh the latest annotated frame at a bounded rate."""
+
+    def __init__(self, role, index, confidence):
+        self.role = role
+        self.index = int(index)
+        self.confidence = float(confidence)
+        self.frame = None
+        self.timestamp = 0.0
+        self.error = "YOLO 即時預覽啟動中"
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.used = time.monotonic()
+        self.started = self.used
+        self.thread = threading.Thread(
+            target=self._run,
+            name=f"{role}-camera-{index}-inference",
+            daemon=True,
+        )
+        self.thread.start()
+
+    def set_confidence(self, confidence):
+        with self.lock:
+            self.confidence = float(confidence)
+
+    def _run(self):
+        interval = 1.0 / max(0.1, REALTIME_INFERENCE_FPS)
+        while not self.stop.is_set() and time.monotonic() - self.used < 30:
+            started = time.monotonic()
+            try:
+                source, _ = reader(self.index).latest()
+                with self.lock:
+                    confidence = self.confidence
+                annotated = annotate_preview_frame(self.role, source, confidence)
+                with self.lock:
+                    self.frame = annotated
+                    self.timestamp = time.monotonic()
+                    self.error = ""
+            except Exception as exc:
+                with self.lock:
+                    self.error = str(exc)
+            remaining = interval - (time.monotonic() - started)
+            self.stop.wait(max(0.01, remaining))
+
+    def latest(self):
+        self.used = time.monotonic()
+        with self.lock:
+            if self.frame is None or time.monotonic() - self.timestamp > 3:
+                raise RuntimeError(self.error or f"{self.role} YOLO 即時預覽尚未就緒")
+            return self.frame.copy(), self.timestamp
+
+
+def inference_reader(role, index, confidence):
+    role = str(role)
+    index = int(index)
+    if role not in ROLES:
+        raise ValueError(f"不支援的推論角色：{role}")
+    key = (role, index)
+    with _inference_reader_lock:
+        current = _inference_readers.get(key)
+        if current is None or (
+            not current.thread.is_alive() and time.monotonic() - current.started >= 5
+        ):
+            current = _inference_readers[key] = InferenceReader(role, index, confidence)
+        current.used = time.monotonic()
+        current.set_confidence(confidence)
+        return current
+
+
 def validate_calibration(calibration, index, shape):
     if not calibration or calibration.get("camera") != index:
         raise ValueError("相機尚未校正，或相機已更換，請重新校正")
@@ -174,11 +375,15 @@ def infer_pair(paths, scales, confidence, progress):
         if frame is None:
             raise ValueError(f"無法讀取 {role} 照片")
         classes = target_classes(model, role)
-        result = model.predict(frame, conf=float(confidence), classes=classes,
-                               retina_masks=True, device=0 if torch.cuda.is_available() else "cpu",
-                               verbose=False)[0]
+        with _model_locks[role]:
+            result = model.predict(frame, conf=float(confidence), classes=classes,
+                                   retina_masks=True, device=0 if torch.cuda.is_available() else "cpu",
+                                   verbose=False)[0]
         if result.masks is None or result.boxes is None or len(result.boxes) == 0:
-            raise ValueError(f"{role} 未偵測到有效遮罩，請重新拍攝；未更新量測資料")
+            raise ValueError(
+                f"{role} 未偵測到有效遮罩（confidence={float(confidence):.2f}），"
+                "請降低門檻或更換照片；未更新量測資料"
+            )
         masks = result.masks.data.cpu().numpy()
         if masks.shape[1:] != frame.shape[:2]:
             raise ValueError(f"{role} 遮罩與原始照片尺寸不一致")

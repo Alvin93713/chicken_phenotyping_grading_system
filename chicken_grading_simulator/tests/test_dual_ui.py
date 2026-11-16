@@ -4,7 +4,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from types import SimpleNamespace
 
 import numpy as np
 from streamlit.testing.v1 import AppTest
@@ -18,7 +17,7 @@ import dual_camera_ui
 class DualUITests(unittest.TestCase):
     def test_pages_and_independent_calibration(self):
         frame = np.zeros((480,640,3), dtype=np.uint8)
-        with tempfile.TemporaryDirectory() as folder, patch.object(database, "DB_PATH", Path(folder)/"test.db"), patch.object(dual_camera_ui, "reader", return_value=SimpleNamespace(latest=lambda:(frame,0))), patch.object(dual_camera_ui, "capture_pair", return_value={r:frame for r in ("comb","shank")}), patch("dual_camera.BASE_DIR", Path(folder)):
+        with tempfile.TemporaryDirectory() as folder, patch.object(database, "DB_PATH", Path(folder)/"test.db"), patch.object(dual_camera_ui, "ensure_preview_server", return_value=8765), patch.object(dual_camera_ui, "capture_pair", return_value={r:frame for r in ("comb","shank")}), patch("dual_camera.BASE_DIR", Path(folder)):
             at = AppTest.from_file(str(ROOT / "src" / "app.py"), default_timeout=20).run()
             self.assertEqual(len(at.exception), 0)
             for page in ["相機調整", "比例尺校正", "掃描 QR code 與表型輸入"]:
@@ -36,10 +35,22 @@ class DualUITests(unittest.TestCase):
             next(b for b in at.button if b.label == "確定雙相機校正").click().run()
             self.assertEqual(len(at.exception), 0)
             calibration = at.session_state["dual_calibrations"]
-            self.assertAlmostEqual(calibration["comb"]["cm_per_pixel"], 0.1)
-            self.assertAlmostEqual(calibration["shank"]["cm_per_pixel"], 0.05)
+            self.assertAlmostEqual(calibration["comb"]["cm_per_pixel"], 0.2)
+            self.assertAlmostEqual(calibration["shank"]["cm_per_pixel"], 0.1)
             at.segmented_control[0].set_value("掃描 QR code 與表型輸入").run()
             self.assertEqual(at.session_state["dual_calibrations"], calibration)
+            confidence = next(item for item in at.number_input if item.label == "YOLO confidence 門檻")
+            self.assertAlmostEqual(confidence.value, 0.25)
+            at.toggle[0].set_value(True).run()
+            self.assertEqual(len(at.file_uploader), 2)
+            self.assertEqual(
+                {item.label for item in at.file_uploader},
+                {"上傳 Comb 雞冠 照片", "上傳 Shank 腳脛 照片"},
+            )
+            self.assertTrue(
+                {"Comb 雞冠 cm/pixel", "Shank 腳脛 cm/pixel"}
+                <= {item.label for item in at.number_input}
+            )
             at.session_state["phenotype_entry_confirmed_manual_id"] = "C001"
             at.run()
             self.assertEqual(len(at.exception), 0, str(at.exception))

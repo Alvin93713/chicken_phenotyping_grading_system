@@ -47,6 +47,30 @@ class ScaleControlTests(unittest.TestCase):
         self.assertEqual(paths["shank"], "s.png")
         self.assertEqual(scales, {"comb": 0.1, "shank": 0.2})
 
+    def test_uploaded_photos_bypass_camera_capture(self):
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)
+        frames = {"comb": frame, "shank": frame.copy()}
+        supplied_scales = {"comb": 0.03, "shank": 0.04}
+
+        with patch.object(dual_camera_ui, "capture_pair") as capture, \
+             patch.object(dual_camera_ui, "save_pair", return_value={"comb": "c.png", "shank": "s.png"}) as save:
+            weight, result, paths, scales = dual_camera_ui.acquire_measurement_inputs(
+                {"comb": 0, "shank": 1},
+                {},
+                "",
+                2500,
+                Mock(),
+                supplied_frames=frames,
+                supplied_scales=supplied_scales,
+            )
+
+        capture.assert_not_called()
+        save.assert_called_once_with(frames)
+        self.assertEqual(weight, 2500)
+        self.assertIsNone(result)
+        self.assertEqual(paths["comb"], "c.png")
+        self.assertEqual(scales, supplied_scales)
+
 
 if __name__ == "__main__":
     unittest.main()

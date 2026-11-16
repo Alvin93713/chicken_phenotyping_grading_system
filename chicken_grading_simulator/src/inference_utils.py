@@ -51,7 +51,7 @@ ASSET_DATA_DIR = _asset_data_dir()
 VIDEOS_DIR = ASSET_DATA_DIR / "comb_shank_sam_video"
 OUTPUTS_DIR = DATA_DIR / "sam2_inference_outputs"
 YOLO_WEIGHTS = ASSET_DATA_DIR / "best.pt"
-YOLO_SEG_WEIGHTS = BASE_DIR / "best.pt"
+YOLO_SEG_WEIGHTS = BASE_DIR / "best_comb.pt"
 SAM2_WEIGHTS = ASSET_DATA_DIR / "sam2_b.pt"
 PIPELINE_SCRIPT = ASSET_DATA_DIR / "scripts" / "sam2_pipeline.py"
 SELECTED_VIDEO_INPUT_DIR = DATA_DIR / "_sam2_selected_input"
@@ -59,6 +59,18 @@ CAMERA_CAPTURE_DIR = DATA_DIR / "camera_captures"
 CALIBRATION_CAPTURE_DIR = DATA_DIR / "calibration_captures"
 PROGRESS_FILE = OUTPUTS_DIR / "last_inference_progress.json"
 COMB_CONFIDENCE_FALLBACK = 0.25
+
+
+def open_camera(camera_index: int):
+    """Open a camera with the native backend for the current operating system."""
+    import cv2
+
+    backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+    cap = cv2.VideoCapture(int(camera_index), backend)
+    if not cap.isOpened() and backend != cv2.CAP_ANY:
+        cap.release()
+        cap = cv2.VideoCapture(int(camera_index), cv2.CAP_ANY)
+    return cap
 
 
 def app_executable() -> str:
@@ -255,9 +267,7 @@ def record_camera_video(
     safe_chicken_id = "".join(ch for ch in str(chicken_id) if ch.isalnum() or ch in {"-", "_"})
     video_path = CAMERA_CAPTURE_DIR / f"{safe_chicken_id}_{timestamp}.mp4"
 
-    cap = cv2.VideoCapture(int(camera_index), cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(int(camera_index))
+    cap = open_camera(camera_index)
     if not cap.isOpened():
         raise RuntimeError(f"無法開啟攝影機 ID {camera_index}。請確認外接鏡頭已連接，或調整 camera ID。")
 
@@ -310,9 +320,7 @@ def capture_calibration_image(camera_index: int = 0) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     image_path = CALIBRATION_CAPTURE_DIR / f"calibration_{timestamp}.png"
 
-    cap = cv2.VideoCapture(int(camera_index), cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(int(camera_index))
+    cap = open_camera(camera_index)
     if not cap.isOpened():
         raise RuntimeError(f"無法開啟攝影機 ID {camera_index}。請確認鏡頭已連接，或調整 camera ID。")
 
@@ -336,9 +344,7 @@ def capture_camera_frame(camera_index: int = 0):
     """Capture one BGR frame from a local camera."""
     import cv2
 
-    cap = cv2.VideoCapture(int(camera_index), cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(int(camera_index))
+    cap = open_camera(camera_index)
     if not cap.isOpened():
         raise RuntimeError(f"無法開啟攝影機 ID {camera_index}。")
     try:

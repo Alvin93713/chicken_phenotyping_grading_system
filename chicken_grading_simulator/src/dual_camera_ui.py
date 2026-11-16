@@ -1,12 +1,14 @@
 """Two-camera configuration, calibration, and snapshot workflow."""
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import streamlit as st
 from PIL import Image, ImageDraw
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 from dual_camera import (
-    MODEL_PATHS, ROLES, capture_pair, reader, save_pair, validate_calibration,
+    MODEL_PATHS, ROLES, capture_pair, ensure_preview_server, save_pair,
+    validate_calibration,
 )
 from inference_queue import enqueue_snapshot_job, list_jobs, STATUS_COMPLETED
 from inference_utils import OUTPUTS_DIR
@@ -18,7 +20,15 @@ def begin_final_weight_collection():
     st.session_state.scale_collection_phase = "finalizing"
 
 
-def acquire_measurement_inputs(indices, calibrations, scale_port, manual_weight, read_average):
+def acquire_measurement_inputs(
+    indices,
+    calibrations,
+    scale_port,
+    manual_weight,
+    read_average,
+    supplied_frames=None,
+    supplied_scales=None,
+):
     """Freeze one weight result before acquiring the two camera frames."""
     weight = float(manual_weight)
     scale_result = None
@@ -27,12 +37,31 @@ def acquire_measurement_inputs(indices, calibrations, scale_port, manual_weight,
         if scale_result.average_g is not None:
             weight = float(scale_result.average_g)
 
-    frames = capture_pair(indices)
-    scales = {
-        role: validate_calibration(calibrations.get(role), indices[role], frames[role].shape)
-        for role in ROLES
-    }
+    if supplied_frames is None:
+        frames = capture_pair(indices)
+        scales = {
+            role: validate_calibration(calibrations.get(role), indices[role], frames[role].shape)
+            for role in ROLES
+        }
+    else:
+        if set(supplied_frames) != set(ROLES) or set(supplied_scales or {}) != set(ROLES):
+            raise ValueError("請上傳雞冠與腳脛兩張照片，並設定兩組 cm/pixel")
+        frames = supplied_frames
+        scales = {role: float(supplied_scales[role]) for role in ROLES}
+        if any(value <= 0 for value in scales.values()):
+            raise ValueError("照片模式的 cm/pixel 必須大於 0")
     return weight, scale_result, save_pair(frames), scales
+
+
+def decode_uploaded_frame(uploaded_file):
+    import cv2
+    import numpy as np
+
+    data = np.frombuffer(uploaded_file.getvalue(), dtype=np.uint8)
+    frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if frame is None:
+        raise ValueError("無法讀取上傳的照片，請使用 JPG、PNG 或 BMP")
+    return frame
 
 
 def camera_settings(page):
@@ -50,17 +79,37 @@ def camera_settings(page):
     return indices
 
 
-@st.fragment(run_every=0.25)
-def previews(indices):
+def _preview_host():
+    try:
+        host_header = st.context.headers.get("Host", "localhost")
+    except Exception:
+        host_header = "localhost"
+    return urlsplit(f"//{host_header}").hostname or "localhost"
+
+
+def previews(indices, inference=False, confidence=0.25):
+    try:
+        port = ensure_preview_server()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+    host = _preview_host()
     for role, col in zip(ROLES, st.columns(2)):
         with col:
             st.markdown(f"**{LABELS[role]}**")
-            try:
-                frame, _ = reader(indices[role]).latest()
-                with st.container(key=f"dual_preview_{role}"):
-                    st.image(frame, channels="BGR", use_container_width=True)
-            except RuntimeError as exc:
-                st.info(str(exc))
+            if inference:
+                source = (
+                    f"http://{host}:{port}/inference/{role}/{indices[role]}.mjpg"
+                    f"?confidence={float(confidence):.3f}"
+                )
+            else:
+                source = f"http://{host}:{port}/camera/{indices[role]}.mjpg"
+            with st.container(key=f"dual_preview_{role}"):
+                st.markdown(
+                    f'<img src="{source}" alt="{LABELS[role]} camera preview" '
+                    'style="display:block;width:100%;height:auto;" />',
+                    unsafe_allow_html=True,
+                )
 
 
 def adjustment_page(heading):
@@ -106,7 +155,7 @@ def calibration_page(heading, hotkey):
     lengths = {}
     for role, col in zip(ROLES, st.columns(2)):
         lengths[role] = col.number_input(f"{LABELS[role]} 比例尺長度 (cm)",
-            min_value=0.001, value=10.0, key=f"dual_{role}_real_length")
+            min_value=0.001, value=20.0, key=f"dual_{role}_real_length")
     photos = st.session_state.get("dual_calibration_photos")
     ready = photos and all(len(st.session_state.get(f"dual_{r}_points", [])) == 2 for r in ROLES)
     hotkey("確定雙相機校正" if ready else "拍攝雙相機校正照片")
@@ -193,11 +242,47 @@ def snapshot_results():
 def phenotype_page(helpers):
     helpers["page_heading"]("雙相機表型量測", "Comb 與 Shank 各拍一張照片，合併量測與分級結果。")
     helpers["install_r_submit_hotkey"]("計算雞冠及腳脛數據")
-    indices = camera_settings("phenotype")
-    calibrations = calibration_status(indices)
+    photo_mode = st.toggle("使用照片測試模式（不開啟雙相機）", key="dual_photo_mode")
+    if photo_mode:
+        indices = {
+            role: int(st.session_state.get(f"dual_{role}_camera", i))
+            for i, role in enumerate(ROLES)
+        }
+        calibrations = st.session_state.get("dual_calibrations", {})
+    else:
+        indices = camera_settings("phenotype")
+        calibrations = calibration_status(indices)
     confidence = st.number_input("YOLO confidence 門檻", min_value=0.01, max_value=1.0,
-                                 value=0.5, step=0.05, key="dual_confidence")
-    previews(indices)
+                                 value=0.25, step=0.05, key="dual_confidence")
+    supplied_frames = {}
+    supplied_scales = {}
+    if photo_mode:
+        st.info("照片模式不會開啟 Camera 0/1。cm/pixel 會直接影響面積、寬度與長度結果。")
+        for role, col in zip(ROLES, st.columns(2)):
+            uploaded = col.file_uploader(
+                f"上傳 {LABELS[role]} 照片",
+                type=["jpg", "jpeg", "png", "bmp"],
+                key=f"dual_{role}_photo",
+            )
+            if uploaded is not None:
+                try:
+                    supplied_frames[role] = decode_uploaded_frame(uploaded)
+                    col.image(supplied_frames[role], channels="BGR", use_container_width=True)
+                except ValueError as exc:
+                    col.error(str(exc))
+        for role, col in zip(ROLES, st.columns(2)):
+            default_scale = float(calibrations.get(role, {}).get("cm_per_pixel") or 0.01)
+            supplied_scales[role] = col.number_input(
+                f"{LABELS[role]} cm/pixel",
+                min_value=0.000001,
+                value=default_scale,
+                step=0.000001,
+                format="%.6f",
+                key=f"dual_{role}_photo_scale",
+            )
+    else:
+        st.caption("即時 YOLO segmentation 預覽（背景推論目標 15 FPS；正式量測仍使用原始單張照片）")
+        previews(indices, inference=True, confidence=confidence)
     for role, path in MODEL_PATHS.items():
         if not path.is_file():
             st.error(f"找不到 {role} 模型：{path}")
@@ -225,7 +310,9 @@ def phenotype_page(helpers):
             )
         if submitted:
             try:
-                if not all(calibrations.get(role, {}).get("camera") == indices[role] for role in ROLES):
+                if photo_mode and set(supplied_frames) != set(ROLES):
+                    raise ValueError("請先上傳雞冠與腳脛兩張照片")
+                if not photo_mode and not all(calibrations.get(role, {}).get("camera") == indices[role] for role in ROLES):
                     raise ValueError("請先完成兩台相機的比例尺校正")
                 for path in MODEL_PATHS.values():
                     if not path.is_file():
@@ -237,6 +324,8 @@ def phenotype_page(helpers):
                         scale_port,
                         manual_weight,
                         helpers["read_scale_average"],
+                        supplied_frames=supplied_frames if photo_mode else None,
+                        supplied_scales=supplied_scales if photo_mode else None,
                     )
                 sample_count = len(result.samples) if result is not None else 0
                 if result is not None and result.average_g is None:

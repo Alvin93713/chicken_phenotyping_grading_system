@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+import base64
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, Mock
@@ -24,6 +25,31 @@ class Tensor:
 
 
 class DualCameraTests(unittest.TestCase):
+    def test_realtime_preview_uses_role_model_and_confidence(self):
+        frame = np.zeros((32, 48, 3), dtype=np.uint8)
+        plotted = np.full_like(frame, 127)
+        result = SimpleNamespace(plot=Mock(return_value=plotted))
+        model = Mock(names={0: "comb"}, predict=Mock(return_value=[result]))
+
+        with patch.object(dual, "model_for", return_value=model):
+            actual = dual.annotate_preview_frame("comb", frame, 0.25)
+
+        np.testing.assert_array_equal(actual, plotted)
+        model.predict.assert_called_once()
+        self.assertEqual(model.predict.call_args.kwargs["conf"], 0.25)
+        self.assertEqual(model.predict.call_args.kwargs["classes"], [0])
+        self.assertTrue(model.predict.call_args.kwargs["retina_masks"])
+        self.assertFalse(model.predict.call_args.kwargs["verbose"])
+
+    def test_preview_frame_is_embedded_as_valid_jpeg_data_uri(self):
+        frame = np.zeros((32, 48, 3), dtype=np.uint8)
+        uri = dual.preview_data_uri(frame)
+
+        self.assertTrue(uri.startswith("data:image/jpeg;base64,"))
+        encoded = base64.b64decode(uri.split(",", 1)[1])
+        self.assertTrue(encoded.startswith(b"\xff\xd8"))
+        self.assertTrue(encoded.endswith(b"\xff\xd9"))
+
     def test_camera_and_resolution_must_match_calibration(self):
         calibration = dict(camera=1, shape=[100, 200], cm_per_pixel=0.2)
         self.assertEqual(dual.validate_calibration(calibration, 1, (100,200,3)), 0.2)

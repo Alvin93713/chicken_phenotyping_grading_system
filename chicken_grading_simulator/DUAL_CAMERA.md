@@ -4,7 +4,7 @@
 
 ## 模型
 
-- 專案根目錄 `best.pt`：只使用 comb 類別。
+- 專案根目錄 `best_comb.pt`：只使用 comb 類別。
 - 專案根目錄 `best_shank.pt`：使用 shank 模型。
 - 模型檔不隨 Git 傳送；部署到 Ubuntu 時須另外複製這兩個檔案。
 

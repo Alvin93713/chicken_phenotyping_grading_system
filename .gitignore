@@ -28,6 +28,8 @@ chicken_grading_simulator/data/calibration_captures/
 
 # GitHub source repo exclusions
 *.pt
+!chicken_grading_simulator/best_comb.pt
+!chicken_grading_simulator/best_shank.pt
 *.pth
 *.onnx
 *.engine
@@ -38,6 +40,7 @@ chicken_grading_simulator/data/calibration_captures/
 *.bundle
 *.yaml
 *.yml
+!.agents/skills/run-chicken-video-pipeline/agents/openai.yaml
 *.log
 *.pyc
 *.sqbpro
