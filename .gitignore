@@ -22,6 +22,7 @@ chicken_grading_simulator/data/_sam2_selected_input/
 chicken_grading_simulator/data/sam2_inference_outputs/
 chicken_grading_simulator/data/camera_captures/
 chicken_grading_simulator/data/calibration_captures/
+chicken_grading_simulator/data/product_review/
 
 # SQLite GUI project files
 *.sqbpro

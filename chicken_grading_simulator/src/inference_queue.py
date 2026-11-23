@@ -22,11 +22,13 @@ from database import (
 from grading import grade_chicken, validate_grading_config
 from dual_camera import infer_pair
 from inference_utils import (
+    OUTPUTS_DIR,
     get_torch_cuda_status,
     record_camera_video,
     run_yolo_seg_inference_on_video,
     write_metric_to_chicken,
 )
+from product_review import record_snapshot_review
 
 
 STATUS_WAITING = "等待中"
@@ -200,6 +202,18 @@ def _process_snapshot(job):
     _update_job(job.job_id, status=STATUS_COMPLETED, progress_completed=2,
                 message="雙相機推論完成，結果已寫入資料庫", result_row=row,
                 preliminary_grade_result=grade, preliminary_light_result=light, arduino_result=hardware)
+    _capture_product_review(job, measurements=measurements)
+
+
+def _capture_product_review(job, measurements=None, error: str = "") -> None:
+    """Capture optional QA data without changing the grading outcome."""
+    if not job.snapshot_paths:
+        return
+    try:
+        output_folder = OUTPUTS_DIR / Path(job.snapshot_paths["comb"]).parent.name
+        record_snapshot_review(job, output_folder, measurements=measurements, error=error)
+    except Exception as review_exc:
+        print(f"Product review capture failed: {review_exc}")
 
 
 def _update_job(job_id: str, **changes: object) -> None:
@@ -290,6 +304,7 @@ def _inference_device() -> str:
 
 def _worker_loop() -> None:
     while True:
+        job = None
         try:
             job_id = _queue.get(timeout=0.5)
         except Empty:
@@ -354,6 +369,8 @@ def _worker_loop() -> None:
             )
         except Exception as exc:
             _update_job(job_id, status=STATUS_FAILED, message="任務失敗", error=str(exc))
+            if job is not None:
+                _capture_product_review(job, error=str(exc))
         finally:
             _queue.task_done()
             time.sleep(0.1)

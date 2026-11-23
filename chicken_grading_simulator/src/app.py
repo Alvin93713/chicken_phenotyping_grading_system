@@ -1529,11 +1529,13 @@ def main() -> None:
         """
         <div class="app-masthead">
             <div class="app-title">紅羽土雞表型分級系統</div>
-            <div class="app-subtitle">掃描識別 · 表型量測 · 分級亮燈</div>
+            <div class="app-subtitle">掃描識別 · 表型量測 · 分級亮燈 · 品質監控</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    from product_review_ui import model_maintenance_page, quality_dashboard_page, review_cases_page
 
     pages = {
         "硬體連接設定": hardware_settings_page,
@@ -1543,6 +1545,9 @@ def main() -> None:
         "比例尺校正": scale_calibration_section,
         "掃描 QR code 與表型輸入": phenotype_entry_page,
         "再次掃描與亮燈判定": final_scan_page,
+        "模型品質監控": lambda: quality_dashboard_page(page_heading),
+        "案例審核": lambda: review_cases_page(page_heading),
+        "資料與模型維護": lambda: model_maintenance_page(page_heading),
     }
     page_names = list(pages.keys())
     if "main_page_navigation" not in st.session_state:

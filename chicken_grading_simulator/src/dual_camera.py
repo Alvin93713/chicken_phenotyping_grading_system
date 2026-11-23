@@ -387,7 +387,18 @@ def infer_pair(paths, scales, confidence, progress):
         masks = result.masks.data.cpu().numpy()
         if masks.shape[1:] != frame.shape[:2]:
             raise ValueError(f"{role} 遮罩與原始照片尺寸不一致")
-        mask = max(masks, key=lambda m: int((m > 0.5).sum())) > 0.5
+        mask_areas = [int((candidate > 0.5).sum()) for candidate in masks]
+        selected_index = max(range(len(mask_areas)), key=mask_areas.__getitem__)
+        mask = masks[selected_index] > 0.5
+        confidence_values = []
+        confidence_tensor = getattr(result.boxes, "conf", None)
+        if confidence_tensor is not None:
+            confidence_values = [float(value) for value in confidence_tensor.detach().cpu().tolist()]
+        selected_confidence = (
+            confidence_values[selected_index]
+            if selected_index < len(confidence_values)
+            else None
+        )
         scale = float(scales[role])
         if not math.isfinite(scale) or scale <= 0:
             raise ValueError("校正比例必須為正數")
@@ -405,8 +416,13 @@ def infer_pair(paths, scales, confidence, progress):
             raise RuntimeError("無法儲存推論圖片")
         encoded.tofile(str(sample))
         metadata["sample_frames"].append(str(sample))
-        metadata["cameras"][role] = {"photo": paths[role], "cm_per_pixel": scale,
-                                     "model": str(MODEL_PATHS[role]), "confidence": confidence}
+        metadata["cameras"][role] = {
+            "photo": paths[role],
+            "cm_per_pixel": scale,
+            "model": str(MODEL_PATHS[role]),
+            "confidence_threshold": confidence,
+            "detection_confidence": selected_confidence,
+        }
     metadata["measurements"] = measurements
     (folder / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     progress(2, 2, "兩張照片推論完成")
