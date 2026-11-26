@@ -9,6 +9,8 @@ from pathlib import Path
 import qrcode
 from PIL import Image
 
+from i18n import t
+
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 QRCODE_DIR = BASE_DIR / "data" / "qrcodes"
@@ -24,7 +26,7 @@ def generate_qrcode(chicken_id):
     """產生 chicken_id 對應的 QR code 影像。"""
     value = str(chicken_id).strip()
     if not value:
-        raise ValueError("chicken_id 不可空白，無法產生 QR code。")
+        raise ValueError(t("chicken_id 不可空白，無法產生 QR code。"))
 
     qr = qrcode.QRCode(
         version=1,
@@ -52,21 +54,21 @@ def decode_with_opencv(image_bytes):
         import cv2
         import numpy as np
     except ImportError as exc:
-        return None, f"OpenCV 解析器不可用：{exc}"
+        return None, t("OpenCV 解析器不可用：{error}", error=exc)
 
     try:
         array = np.frombuffer(image_bytes, dtype=np.uint8)
         image = cv2.imdecode(array, cv2.IMREAD_COLOR)
         if image is None:
-            return None, "OpenCV 無法讀取此圖片格式。"
+            return None, t("OpenCV 無法讀取此圖片格式。")
         detector = cv2.QRCodeDetector()
         value, _, _ = detector.detectAndDecode(image)
     except Exception as exc:  # noqa: BLE001
-        return None, f"OpenCV 解析失敗：{exc}"
+        return None, t("OpenCV 解析失敗：{error}", error=exc)
 
     value = str(value).strip()
     if not value:
-        return None, "OpenCV 未在圖片中偵測到 QR code。"
+        return None, t("OpenCV 未在圖片中偵測到 QR code。")
     return value, None
 
 
@@ -75,16 +77,16 @@ def decode_with_pyzbar(image_bytes):
     try:
         from pyzbar.pyzbar import decode
     except ImportError as exc:
-        return None, f"pyzbar 解析器不可用：{exc}"
+        return None, t("pyzbar 解析器不可用：{error}", error=exc)
 
     try:
         image = Image.open(BytesIO(image_bytes))
         decoded = decode(image)
     except Exception as exc:  # noqa: BLE001
-        return None, f"pyzbar 解析失敗：{exc}"
+        return None, t("pyzbar 解析失敗：{error}", error=exc)
 
     if not decoded:
-        return None, "pyzbar 未在圖片中偵測到 QR code。"
+        return None, t("pyzbar 未在圖片中偵測到 QR code。")
 
     value = decoded[0].data.decode("utf-8").strip()
     return value, None
@@ -102,8 +104,10 @@ def decode_qrcode_image(file):
     if value:
         return value, None
 
-    return None, (
+    return None, t(
         "QR code 解析失敗。請確認圖片清晰且 QR code 完整，或改用手動輸入 chicken_id。"
-        f"\nOpenCV：{opencv_error}"
-        f"\npyzbar：{pyzbar_error}"
+        "\nOpenCV：{opencv_error}"
+        "\npyzbar：{pyzbar_error}",
+        opencv_error=opencv_error,
+        pyzbar_error=pyzbar_error,
     )

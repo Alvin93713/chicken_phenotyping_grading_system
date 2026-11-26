@@ -5,10 +5,17 @@ from __future__ import annotations
 import sqlite3
 import shutil
 import sys
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+try:
+    from i18n import t
+except Exception:  # pragma: no cover - i18n/streamlit unavailable
+    def t(text, **values):
+        return text.format(**values) if values else text
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -39,14 +46,19 @@ def now_text():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+@contextmanager
 def get_connection():
-    """建立 SQLite 連線。"""
+    """SQLite 連線：區塊成功結束時 commit、發生例外時 rollback，最後一定關閉連線。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if getattr(sys, "frozen", False) and not DB_PATH.exists() and BUNDLED_DB_PATH.exists():
         shutil.copy2(BUNDLED_DB_PATH, DB_PATH)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def table_columns(conn, table_name):
@@ -176,8 +188,19 @@ def migrate_nullable_measurements(conn):
     conn.execute("UPDATE chickens SET weight_g = NULL WHERE weight_g = '' OR CAST(weight_g AS REAL) = 0")
 
 
+_INITIALIZED_DB_PATHS: set[str] = set()
+
+
 def init_db():
-    """建立 chickens 資料表。"""
+    """建立 chickens 資料表（每個資料庫路徑只在本程序第一次呼叫時執行 schema 與遷移）。"""
+    key = str(DB_PATH)
+    if key in _INITIALIZED_DB_PATHS and DB_PATH.exists():
+        return
+    _init_db_schema()
+    _INITIALIZED_DB_PATHS.add(key)
+
+
+def _init_db_schema():
     with get_connection() as conn:
         conn.execute(
             """
@@ -234,101 +257,58 @@ def init_db():
         migrate_nullable_measurements(conn)
 
 
+LEGACY_WIDTH_COLUMN = "shank_" + "area_cm2"
+
+
 def validate_chicken_values(chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm=None):
-    """Validate chicken phenotype values before database writes."""
-    if not str(chicken_id).strip():
+    """Validate and normalize phenotype values once; returns (chicken_id, weight, comb, width, length)."""
+    chicken_id = str(chicken_id).strip()
+    if not chicken_id:
         raise ValueError("chicken_id is required")
-    normalize_chicken_values(weight_g, comb_area_cm2, shank_width_cm, shank_length_cm)
+    return (chicken_id, *normalize_chicken_values(weight_g, comb_area_cm2, shank_width_cm, shank_length_cm))
+
+
+def _insert_chicken(conn, has_legacy_width, values):
+    chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm = values
+    timestamp = now_text()
+    columns = ["chicken_id", "weight_g", "comb_area_cm2", "shank_width_cm", "shank_length_cm", "created_at", "updated_at"]
+    row = [chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm, timestamp, timestamp]
+    if has_legacy_width:
+        columns.insert(3, LEGACY_WIDTH_COLUMN)
+        row.insert(3, shank_width_cm)
+    try:
+        conn.execute(
+            f"INSERT INTO chickens ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
+            tuple(row),
+        )
+    except sqlite3.IntegrityError as exc:
+        raise ValueError(t("chicken_id 已存在：{chicken_id}", chicken_id=chicken_id)) from exc
+
+
+def _update_chicken(conn, has_legacy_width, values):
+    chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm = values
+    assignments = ["weight_g = ?", "comb_area_cm2 = ?", "shank_width_cm = ?", "shank_length_cm = ?", "updated_at = ?"]
+    row = [weight_g, comb_area_cm2, shank_width_cm, shank_length_cm, now_text()]
+    if has_legacy_width:
+        assignments.insert(2, f"{LEGACY_WIDTH_COLUMN} = ?")
+        row.insert(2, shank_width_cm)
+    cursor = conn.execute(f"UPDATE chickens SET {', '.join(assignments)} WHERE chicken_id = ?", (*row, chicken_id))
+    if cursor.rowcount == 0:
+        raise ValueError(t("查無此雞隻：{chicken_id}", chicken_id=chicken_id))
+
 
 def add_chicken(chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm=None):
     """新增雞隻資料。"""
-    validate_chicken_values(chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm)
-    weight_g, comb_area_cm2, shank_width_cm, shank_length_cm = normalize_chicken_values(
-        weight_g,
-        comb_area_cm2,
-        shank_width_cm,
-        shank_length_cm,
-    )
-    timestamp = now_text()
-
-    try:
-        with get_connection() as conn:
-            columns = table_columns(conn, "chickens")
-            insert_columns = [
-                "chicken_id",
-                "weight_g",
-                "comb_area_cm2",
-                "shank_width_cm",
-                "shank_length_cm",
-                "created_at",
-                "updated_at",
-            ]
-            insert_values = [
-                str(chicken_id).strip(),
-                weight_g,
-                comb_area_cm2,
-                shank_width_cm,
-                shank_length_cm,
-                timestamp,
-                timestamp,
-            ]
-            legacy_width_column = "shank_" + "area_cm2"
-            if legacy_width_column in columns:
-                insert_columns.insert(3, legacy_width_column)
-                insert_values.insert(3, shank_width_cm)
-            placeholders = ", ".join("?" for _ in insert_columns)
-            conn.execute(
-                f"""
-                INSERT INTO chickens ({", ".join(insert_columns)})
-                VALUES ({placeholders})
-                """,
-                tuple(insert_values),
-            )
-    except sqlite3.IntegrityError as exc:
-        raise ValueError(f"chicken_id 已存在：{chicken_id}") from exc
+    values = validate_chicken_values(chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm)
+    with get_connection() as conn:
+        _insert_chicken(conn, LEGACY_WIDTH_COLUMN in table_columns(conn, "chickens"), values)
 
 
 def update_chicken(chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm=None):
     """更新雞隻表型資料，並保留既有分級結果。"""
-    validate_chicken_values(chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm)
-    weight_g, comb_area_cm2, shank_width_cm, shank_length_cm = normalize_chicken_values(
-        weight_g,
-        comb_area_cm2,
-        shank_width_cm,
-        shank_length_cm,
-    )
-
+    values = validate_chicken_values(chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm)
     with get_connection() as conn:
-        columns = table_columns(conn, "chickens")
-        assignments = [
-            "weight_g = ?",
-            "comb_area_cm2 = ?",
-            "shank_width_cm = ?",
-            "shank_length_cm = ?",
-            "updated_at = ?",
-        ]
-        values = [
-            weight_g,
-            comb_area_cm2,
-            shank_width_cm,
-            shank_length_cm,
-            now_text(),
-        ]
-        legacy_width_column = "shank_" + "area_cm2"
-        if legacy_width_column in columns:
-            assignments.insert(2, f"{legacy_width_column} = ?")
-            values.insert(2, shank_width_cm)
-        values.append(str(chicken_id).strip())
-        cursor = conn.execute(
-            f"""
-            UPDATE chickens
-            SET {", ".join(assignments)}
-            WHERE chicken_id = ?
-            """,
-            tuple(values),
-        )
-        if cursor.rowcount == 0:
-            raise ValueError(f"查無此雞隻：{chicken_id}")
+        _update_chicken(conn, LEGACY_WIDTH_COLUMN in table_columns(conn, "chickens"), values)
 
 
 def delete_chicken(chicken_id):
@@ -359,9 +339,9 @@ def get_all_chickens():
     return [dict(row) for row in rows]
 
 
-def get_all_chickens_df():
-    """以 DataFrame 回傳所有雞隻資料。"""
-    rows = get_all_chickens()
+def get_all_chickens_df(rows=None):
+    """以 DataFrame 回傳所有雞隻資料（可傳入已讀取的 rows，避免再查一次）。"""
+    rows = get_all_chickens() if rows is None else rows
     df = pd.DataFrame(rows)
     if df.empty:
         return pd.DataFrame(columns=DISPLAY_COLUMNS)
@@ -377,8 +357,26 @@ def update_grading_result(
     light_result,
 ):
     """將單隻雞的分級結果寫回資料庫。"""
+    update_grading_results([(chicken_id, grade_result, light_result)],
+                           selected_features, pass_thresholds, standby_thresholds)
+
+
+def update_grading_results(results, selected_features, pass_thresholds, standby_thresholds):
+    """Write many (chicken_id, grade_result, light_result) rows with the same thresholds in one transaction."""
+    timestamp = now_text()
+    thresholds = (
+        ",".join(selected_features),
+        pass_thresholds.get("weight_g"),
+        pass_thresholds.get("comb_area_cm2"),
+        pass_thresholds.get("shank_width_cm"),
+        pass_thresholds.get("shank_length_cm"),
+        standby_thresholds.get("weight_g"),
+        standby_thresholds.get("comb_area_cm2"),
+        standby_thresholds.get("shank_width_cm"),
+        standby_thresholds.get("shank_length_cm"),
+    )
     with get_connection() as conn:
-        conn.execute(
+        conn.executemany(
             """
             UPDATE chickens
             SET selected_features = ?,
@@ -396,22 +394,7 @@ def update_grading_result(
                 graded_at = ?
             WHERE chicken_id = ?
             """,
-            (
-                ",".join(selected_features),
-                pass_thresholds.get("weight_g"),
-                pass_thresholds.get("comb_area_cm2"),
-                pass_thresholds.get("shank_width_cm"),
-                pass_thresholds.get("shank_length_cm"),
-                standby_thresholds.get("weight_g"),
-                standby_thresholds.get("comb_area_cm2"),
-                standby_thresholds.get("shank_width_cm"),
-                standby_thresholds.get("shank_length_cm"),
-                grade_result,
-                light_result,
-                now_text(),
-                now_text(),
-                chicken_id,
-            ),
+            [(*thresholds, grade, light, timestamp, timestamp, chicken_id) for chicken_id, grade, light in results],
         )
 
 
@@ -429,7 +412,7 @@ def mark_final_scanned(chicken_id):
             (timestamp, timestamp, str(chicken_id).strip()),
         )
         if cursor.rowcount == 0:
-            raise ValueError(f"查無此雞隻：{chicken_id}")
+            raise ValueError(t("查無此雞隻：{chicken_id}", chicken_id=chicken_id))
     return timestamp
 
 
@@ -483,41 +466,30 @@ def import_csv(file):
     required = {"chicken_id", "weight_g", "comb_area_cm2"}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"CSV 缺少必要欄位：{', '.join(sorted(missing))}")
+        raise ValueError(t("CSV 缺少必要欄位：{columns}", columns=", ".join(sorted(missing))))
     if "shank_width_cm" not in df.columns:
-        raise ValueError("CSV 缺少必要欄位：shank_width_cm")
+        raise ValueError(t("CSV 缺少必要欄位：{columns}", columns="shank_width_cm"))
     if "shank_length_cm" not in df.columns:
         df["shank_length_cm"] = None
 
+    # Validate every row first (nothing is written if one row is bad), then write all rows in one transaction.
+    rows = [
+        validate_chicken_values(row.chicken_id, row.weight_g, row.comb_area_cm2, row.shank_width_cm, row.shank_length_cm)
+        for row in df[["chicken_id", "weight_g", "comb_area_cm2", "shank_width_cm", "shank_length_cm"]].itertuples(index=False)
+    ]
     inserted = 0
     updated = 0
-    for _, row in df.iterrows():
-        chicken_id = str(row["chicken_id"]).strip()
-        validate_chicken_values(
-            chicken_id,
-            row["weight_g"],
-            row["comb_area_cm2"],
-            row["shank_width_cm"],
-            row["shank_length_cm"],
-        )
-        if get_chicken(chicken_id):
-            update_chicken(
-                chicken_id,
-                row["weight_g"],
-                row["comb_area_cm2"],
-                row["shank_width_cm"],
-                row["shank_length_cm"],
-            )
-            updated += 1
-        else:
-            add_chicken(
-                chicken_id,
-                row["weight_g"],
-                row["comb_area_cm2"],
-                row["shank_width_cm"],
-                row["shank_length_cm"],
-            )
-            inserted += 1
+    with get_connection() as conn:
+        has_legacy_width = LEGACY_WIDTH_COLUMN in table_columns(conn, "chickens")
+        existing = {row["chicken_id"] for row in conn.execute("SELECT chicken_id FROM chickens")}
+        for values in rows:
+            if values[0] in existing:
+                _update_chicken(conn, has_legacy_width, values)
+                updated += 1
+            else:
+                _insert_chicken(conn, has_legacy_width, values)
+                existing.add(values[0])
+                inserted += 1
     return inserted, updated
 
 

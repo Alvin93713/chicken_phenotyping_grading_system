@@ -1,3 +1,5 @@
+import os as _os
+_os.environ["CHICKEN_SYNC_DISABLE_WORKER"] = "1"  # never start the real background uploader in tests
 import sys
 import tempfile
 import unittest

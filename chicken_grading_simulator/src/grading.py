@@ -1,5 +1,11 @@
 """Chicken phenotype grading logic."""
 
+try:
+    from i18n import t
+except Exception:  # pragma: no cover - i18n/streamlit unavailable
+    def t(text, **values):
+        return text.format(**values) if values else text
+
 FEATURE_COLUMNS = {
     "weight_g": "體重",
     "comb_area_cm2": "雞冠面積",
@@ -32,47 +38,69 @@ def active_features(selected_features, pass_thresholds, standby_thresholds):
 def validate_grading_config(selected_features, pass_thresholds, standby_thresholds):
     """Validate selected grading features and two-level thresholds."""
     if not selected_features:
-        raise ValueError("請至少選擇一個分級特徵。")
+        raise ValueError(t("請至少選擇一個分級特徵。"))
 
     enabled = active_features(selected_features, pass_thresholds, standby_thresholds)
     if not enabled:
-        raise ValueError("請至少設定一個大於 0 的通過門檻或備用門檻。")
+        raise ValueError(t("請至少設定一個大於 0 的通過門檻或備用門檻。"))
 
     for feature in selected_features:
         if feature not in FEATURE_COLUMNS:
-            raise ValueError(f"不支援的分級欄位：{feature}")
+            raise ValueError(t("不支援的分級欄位：{feature}", feature=feature))
         pass_value = pass_thresholds.get(feature)
         standby_value = standby_thresholds.get(feature)
         if pass_value is None:
-            raise ValueError(f"請設定 {FEATURE_COLUMNS[feature]} 的通過門檻。")
+            raise ValueError(t("請設定 {feature} 的通過門檻。", feature=t(FEATURE_COLUMNS[feature])))
         if standby_value is None:
-            raise ValueError(f"請設定 {FEATURE_COLUMNS[feature]} 的備用門檻。")
+            raise ValueError(t("請設定 {feature} 的備用門檻。", feature=t(FEATURE_COLUMNS[feature])))
         if pass_value < 0 or standby_value < 0:
-            raise ValueError(f"{FEATURE_COLUMNS[feature]} 門檻不可小於 0。")
+            raise ValueError(t("{feature} 門檻不可小於 0。", feature=t(FEATURE_COLUMNS[feature])))
         if standby_value > pass_value:
-            raise ValueError(f"{FEATURE_COLUMNS[feature]} 的備用門檻不可高於通過門檻。")
+            raise ValueError(t("{feature} 的備用門檻不可高於通過門檻。", feature=t(FEATURE_COLUMNS[feature])))
+
+
+def grade_details(chicken, enabled_features, pass_thresholds, standby_thresholds):
+    """Grade one chicken against an already validated config.
+    Returns (grade, light, below_pass_features, below_standby_features); a missing value is below both."""
+    below_pass, below_standby = [], []
+    for feature in enabled_features:
+        value = chicken.get(feature)
+        if value is None or value == "":
+            below_pass.append(feature)
+            below_standby.append(feature)
+            continue
+        number = float(value)
+        if number < float(pass_thresholds[feature]):
+            below_pass.append(feature)
+        if number < float(standby_thresholds[feature]):
+            below_standby.append(feature)
+    if not below_pass:
+        return GRADE_PASS, LIGHT_GREEN, below_pass, below_standby
+    if not below_standby:
+        return GRADE_STANDBY, LIGHT_YELLOW, below_pass, below_standby
+    return GRADE_FAIL, LIGHT_RED, below_pass, below_standby
+
+
+def grade_and_store_with_latest_config(chicken):
+    """Grade one chicken row with the latest saved thresholds and store the result.
+    Returns (grade, light), or (None, None) when no thresholds have been saved yet."""
+    from database import get_latest_grading_config, update_grading_result
+
+    config = get_latest_grading_config()
+    if not config:
+        return None, None
+    selected_features, pass_thresholds, standby_thresholds = config
+    grade, light = grade_chicken(chicken, selected_features, pass_thresholds, standby_thresholds)
+    update_grading_result(chicken["chicken_id"], selected_features, pass_thresholds, standby_thresholds, grade, light)
+    return grade, light
 
 
 def grade_chicken(chicken, selected_features, pass_thresholds, standby_thresholds):
     """Grade one chicken and return grade plus light result."""
     validate_grading_config(selected_features, pass_thresholds, standby_thresholds)
-
     enabled = active_features(selected_features, pass_thresholds, standby_thresholds)
-    all_pass = True
-    all_standby = True
-    for feature in enabled:
-        value = chicken.get(feature)
-        if value is None or value == "":
-            return GRADE_FAIL, LIGHT_RED
-        number = float(value)
-        all_pass = all_pass and number >= float(pass_thresholds[feature])
-        all_standby = all_standby and number >= float(standby_thresholds[feature])
-
-    if all_pass:
-        return GRADE_PASS, LIGHT_GREEN
-    if all_standby:
-        return GRADE_STANDBY, LIGHT_YELLOW
-    return GRADE_FAIL, LIGHT_RED
+    grade, light, _, _ = grade_details(chicken, enabled, pass_thresholds, standby_thresholds)
+    return grade, light
 
 
 def summarize_results(results):

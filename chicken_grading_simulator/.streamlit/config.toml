@@ -1,0 +1,19 @@
+# Fixed visual theme so the grading station looks the same on every machine
+# (Windows dev PC and Jetson) regardless of the OS light/dark setting.
+[theme]
+base = "dark"
+primaryColor = "#4f8cff"
+backgroundColor = "#0b1018"
+secondaryBackgroundColor = "#151d2a"
+textColor = "#e7ecf3"
+borderColor = "#263246"
+dataframeBorderColor = "#223047"
+dataframeHeaderBackgroundColor = "#111927"
+showWidgetBorder = true
+baseRadius = "10px"
+buttonRadius = "10px"
+greenColor = "#22c55e"
+yellowColor = "#facc15"
+redColor = "#ef4444"
+blueColor = "#4f8cff"
+linkColor = "#7aa7ff"

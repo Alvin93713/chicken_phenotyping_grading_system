@@ -1,3 +1,9 @@
+import os as _os
+_os.environ["CHICKEN_SYNC_DISABLE_WORKER"] = "1"  # never start the real background uploader in tests
+_os.environ["CHICKEN_UI_PREFS_PATH"] = _os.devnull  # tests always use the default 原版+深色 look
+import tempfile as _tempfile
+# never touch the station's real data/camera_settings.json
+_os.environ["CHICKEN_CAMERA_SETTINGS_PATH"] = _os.path.join(_tempfile.mkdtemp(), "camera_settings.json")
 import sys
 import gc
 import tempfile
@@ -21,12 +27,12 @@ class DualUITests(unittest.TestCase):
             at = AppTest.from_file(str(ROOT / "src" / "app.py"), default_timeout=20).run()
             self.assertEqual(len(at.exception), 0)
             for page in ["相機調整", "比例尺校正", "掃描 QR code 與表型輸入"]:
-                at.segmented_control[0].set_value(page).run()
+                at.segmented_control(key="main_page_navigation_segmented").set_value(page).run()
                 self.assertEqual(len(at.exception), 0, str(at.exception))
                 labels = [n.label for n in at.number_input]
                 self.assertIn("Comb 雞冠 camera ID", labels)
                 self.assertIn("Shank 腳脛 camera ID", labels)
-            at.segmented_control[0].set_value("比例尺校正").run()
+            at.segmented_control(key="main_page_navigation_segmented").set_value("比例尺校正").run()
             next(b for b in at.button if b.label == "拍攝雙相機校正照片").click().run()
             self.assertEqual(len(at.exception), 0, str(at.exception))
             at.session_state["dual_comb_points"] = [(0,0),(100,0)]
@@ -37,10 +43,10 @@ class DualUITests(unittest.TestCase):
             calibration = at.session_state["dual_calibrations"]
             self.assertAlmostEqual(calibration["comb"]["cm_per_pixel"], 0.2)
             self.assertAlmostEqual(calibration["shank"]["cm_per_pixel"], 0.1)
-            at.segmented_control[0].set_value("掃描 QR code 與表型輸入").run()
+            at.segmented_control(key="main_page_navigation_segmented").set_value("掃描 QR code 與表型輸入").run()
             self.assertEqual(at.session_state["dual_calibrations"], calibration)
             confidence = next(item for item in at.number_input if item.label == "YOLO confidence 門檻")
-            self.assertAlmostEqual(confidence.value, 0.25)
+            self.assertAlmostEqual(confidence.value, 0.5)
             at.toggle[0].set_value(True).run()
             self.assertEqual(len(at.file_uploader), 2)
             self.assertEqual(

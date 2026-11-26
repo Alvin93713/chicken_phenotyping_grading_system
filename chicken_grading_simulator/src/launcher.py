@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import runpy
 import socket
 import sys
 import threading
@@ -17,19 +16,6 @@ def app_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)).resolve()
     return Path(__file__).resolve().parents[1]
-
-
-def run_internal_pipeline(root: Path) -> None:
-    """由同一個 exe 執行 sam2_pipeline.py，供 Streamlit 子程序呼叫。"""
-    script_path = root / "data" / "scripts" / "sam2_pipeline.py"
-    if not script_path.exists():
-        raise FileNotFoundError(f"找不到推論腳本：{script_path}")
-
-    os.chdir(root)
-    sys.path.insert(0, str(root))
-    sys.path.insert(0, str(script_path.parent))
-    sys.argv = [str(script_path), *sys.argv[2:]]
-    runpy.run_path(str(script_path), run_name="__main__")
 
 
 def open_browser_later(url: str, delay_seconds: float = 2.5) -> None:
@@ -89,9 +75,6 @@ def run_streamlit(root: Path) -> None:
 
 def main() -> None:
     root = app_root()
-    if len(sys.argv) > 1 and sys.argv[1] == "--run-sam2-pipeline":
-        run_internal_pipeline(root)
-        return
     run_streamlit(root)
 
 

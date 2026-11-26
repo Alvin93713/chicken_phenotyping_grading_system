@@ -4,6 +4,8 @@
 #   python -m pip install -r requirements-jetson.txt
 #   python -m pip install --no-deps ultralytics==8.4.90 ultralytics-thop==2.0.20
 streamlit==1.59.1
+# starlette 1.8+ breaks Streamlit 1.59.1's gzip middleware (HTTP 500 on downloads/media)
+starlette==1.7.0
 streamlit-image-coordinates==0.4.0
 pandas>=2.2,<3
 numpy>=1.26,<2

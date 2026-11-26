@@ -1,0 +1,24 @@
+# /etc/caddy/Caddyfile — HTTPS front door for the chicken review receiver.
+# Caddy obtains and renews the Let's Encrypt certificate automatically
+# (needs the DNS name pointing at this server and ports 80 + 443 open).
+# Replace provider.example.com with your real domain name.
+
+provider.example.com {
+	# Review packages are a few MB each; the receiver itself rejects anything above 50 MB.
+	request_body {
+		max_size 60MB
+	}
+
+	# Only the API endpoints are exposed; everything else returns 404.
+	@api path /v1/ping /v1/snapshots/* /v1/review-packages
+	handle @api {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle {
+		respond 404
+	}
+
+	log {
+		output file /var/log/caddy/chicken-provider.log
+	}
+}

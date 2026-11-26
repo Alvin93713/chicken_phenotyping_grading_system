@@ -15,14 +15,30 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
+from i18n import t
 from inference_utils import BASE_DIR, OUTPUTS_DIR, _mask_sides_px
+import model_registry
+import product_review
+import training_labels
 
-MODEL_PATHS = {"comb": BASE_DIR / "best_comb.pt", "shank": BASE_DIR / "best_shank.pt"}
+# The model version in use per role (models/best_<role>_<雞舍>_<日期>.pt, see model_registry); falls back
+# to best_<role>.pt in the project folder when no version has been imported.
+MODEL_PATHS = model_registry.ActiveModels()
 ROLES = ("comb", "shank")
 PREVIEW_FPS = 30
 PREVIEW_JPEG_QUALITY = 80
 PREVIEW_PORT = int(os.environ.get("CHICKEN_CAMERA_STREAM_PORT", "8765"))
 REALTIME_INFERENCE_FPS = float(os.environ.get("CHICKEN_REALTIME_INFERENCE_FPS", "15"))
+INFERENCE_IDLE_SECONDS = 3.0
+
+
+class _CameraError(RuntimeError):
+    """Reader-thread error kept as a template so it is translated when shown in the UI."""
+
+    def __init__(self, template, **values):
+        super().__init__(template.format(**values))
+        self.template = template
+        self.values = values
 
 
 class CameraReader:
@@ -30,7 +46,8 @@ class CameraReader:
         self.index = index
         self.frame = None
         self.timestamp = 0.0
-        self.error = "相機啟動中"
+        # (template, values); formatted with t() in latest(), which runs in the caller's thread.
+        self.error = ("相機啟動中", {})
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.used = time.monotonic()
@@ -44,19 +61,22 @@ class CameraReader:
         try:
             cap = cv2.VideoCapture(self.index, cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY)
             if not cap.isOpened():
-                raise RuntimeError(f"無法開啟相機 {self.index}")
+                raise _CameraError("無法開啟相機 {index}", index=self.index)
             while not self.stop.is_set() and time.monotonic() - self.used < 30:
                 ok, frame = cap.read()
                 if not ok or frame is None:
-                    raise RuntimeError(f"相機 {self.index} 無法讀取畫面")
+                    raise _CameraError("相機 {index} 無法讀取畫面", index=self.index)
                 with self.lock:
                     self.frame = frame
                     self.timestamp = time.monotonic()
-                    self.error = ""
+                    self.error = None
                 self.stop.wait(0.02)
         except Exception as exc:
             with self.lock:
-                self.error = str(exc)
+                if isinstance(exc, _CameraError):
+                    self.error = (exc.template, exc.values)
+                else:
+                    self.error = (str(exc), {})
         finally:
             if cap is not None:
                 cap.release()
@@ -65,7 +85,8 @@ class CameraReader:
         self.used = time.monotonic()
         with self.lock:
             if self.frame is None or time.monotonic() - self.timestamp > 1:
-                raise RuntimeError(self.error or f"相機 {self.index} 畫面已過期")
+                template, values = self.error or ("相機 {index} 畫面已過期", {"index": self.index})
+                raise RuntimeError(t(template, **values))
             return self.frame.copy(), self.timestamp
 
 
@@ -102,11 +123,11 @@ atexit.register(close_cameras)
 
 def capture_pair(indices, timeout=3.0):
     if indices["comb"] == indices["shank"]:
-        raise ValueError("Comb 與 Shank 必須選擇不同相機")
+        raise ValueError(t("Comb 與 Shank 必須選擇不同相機"))
     cameras = {role: reader(indices[role]) for role in ROLES}
     requested = time.monotonic()
     deadline = requested + timeout
-    error = "等待兩台相機的新畫面"
+    error = t("等待兩台相機的新畫面")
     while time.monotonic() < deadline:
         try:
             frames = {role: cameras[role].latest() for role in ROLES}
@@ -116,7 +137,7 @@ def capture_pair(indices, timeout=3.0):
         except RuntimeError as exc:
             error = str(exc)
         time.sleep(0.02)
-    raise RuntimeError(f"雙相機拍攝失敗：{error}；未建立推論任務")
+    raise RuntimeError(t("雙相機拍攝失敗：{error}；未建立推論任務", error=error))
 
 
 def encode_preview_jpeg(frame, jpeg_quality=PREVIEW_JPEG_QUALITY):
@@ -161,7 +182,7 @@ class _PreviewHandler(BaseHTTPRequestHandler):
             return
         try:
             camera_index = int(index_part.removesuffix(".mjpg"))
-            confidence = float(parse_qs(parsed.query).get("confidence", ["0.25"])[0])
+            confidence = float(parse_qs(parsed.query).get("confidence", ["0.5"])[0])
         except ValueError:
             self.send_error(400, "Invalid preview parameters")
             return
@@ -173,14 +194,19 @@ class _PreviewHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         interval = 1.0 / PREVIEW_FPS
+        last_stamp = None
         try:
             while True:
                 started = time.monotonic()
                 try:
                     if role is None:
-                        frame, _ = reader(camera_index).latest()
+                        frame, stamp = reader(camera_index).latest()
                     else:
-                        frame, _ = inference_reader(role, camera_index, confidence).latest()
+                        frame, stamp = inference_reader(role, camera_index, confidence).latest()
+                    if stamp == last_stamp:  # nothing new (inference runs at 15 fps): don't re-encode
+                        time.sleep(min(interval, 0.02))
+                        continue
+                    last_stamp = stamp
                     encoded = encode_preview_jpeg(frame)
                 except RuntimeError:
                     time.sleep(min(interval, 0.05))
@@ -210,7 +236,8 @@ def ensure_preview_server():
         try:
             server = _PreviewHTTPServer(("0.0.0.0", PREVIEW_PORT), _PreviewHandler)
         except OSError as exc:
-            raise RuntimeError(f"無法啟動相機預覽串流 port {PREVIEW_PORT}：{exc}") from exc
+            raise RuntimeError(t("無法啟動相機預覽串流 port {port}：{error}",
+                                 port=PREVIEW_PORT, error=exc)) from exc
         thread = threading.Thread(target=server.serve_forever, name="camera-mjpeg", daemon=True)
         thread.start()
         _preview_server = server
@@ -227,7 +254,7 @@ def save_pair(frames, kind="snapshots"):
         # imencode/tofile also supports Windows Unicode paths.
         ok, encoded = cv2.imencode(".png", frames[role])
         if not ok:
-            raise RuntimeError(f"無法儲存 {role} 照片")
+            raise RuntimeError(t("無法儲存 {role} 照片", role=role))
         encoded.tofile(str(path))
         paths[role] = str(path)
     return paths
@@ -306,7 +333,9 @@ class InferenceReader:
 
     def _run(self):
         interval = 1.0 / max(0.1, REALTIME_INFERENCE_FPS)
-        while not self.stop.is_set() and time.monotonic() - self.used < 30:
+        # Stop ~3 s after the last viewer: preview inference (2 cameras × 15 fps) competes with the page for
+        # the CPU / Python, and used to keep running for 30 s after leaving the page, slowing page switches.
+        while not self.stop.is_set() and time.monotonic() - self.used < INFERENCE_IDLE_SECONDS:
             started = time.monotonic()
             try:
                 source, _ = reader(self.index).latest()
@@ -350,13 +379,27 @@ def inference_reader(role, index, confidence):
 
 def validate_calibration(calibration, index, shape):
     if not calibration or calibration.get("camera") != index:
-        raise ValueError("相機尚未校正，或相機已更換，請重新校正")
+        raise ValueError(t("相機尚未校正，或相機已更換，請重新校正"))
     if list(shape[:2]) != calibration.get("shape"):
-        raise ValueError("相機解析度與校正照片不同，請重新校正")
+        raise ValueError(t("相機解析度與校正照片不同，請重新校正"))
     scale = float(calibration["cm_per_pixel"])
     if not math.isfinite(scale) or scale <= 0:
-        raise ValueError("校正比例必須為正數")
+        raise ValueError(t("校正比例必須為正數"))
     return scale
+
+
+MASK_CONFIDENCE_MARGIN = 0.15
+
+
+def select_mask_index(areas, confidences, margin=MASK_CONFIDENCE_MARGIN):
+    """Pick the detection to measure using both confidence and size: among detections whose confidence is
+    within `margin` of the most confident one, take the largest mask. A big but doubtful detection (e.g.
+    background) can no longer beat a confident one; a tiny fragment can't beat the real object."""
+    indices = range(len(areas))
+    if len(confidences) == len(areas) and confidences:
+        best = max(confidences)
+        indices = [i for i in indices if confidences[i] >= best - margin]
+    return max(indices, key=lambda i: areas[i])
 
 
 def infer_pair(paths, scales, confidence, progress):
@@ -388,12 +431,12 @@ def infer_pair(paths, scales, confidence, progress):
         if masks.shape[1:] != frame.shape[:2]:
             raise ValueError(f"{role} 遮罩與原始照片尺寸不一致")
         mask_areas = [int((candidate > 0.5).sum()) for candidate in masks]
-        selected_index = max(range(len(mask_areas)), key=mask_areas.__getitem__)
-        mask = masks[selected_index] > 0.5
         confidence_values = []
         confidence_tensor = getattr(result.boxes, "conf", None)
         if confidence_tensor is not None:
             confidence_values = [float(value) for value in confidence_tensor.detach().cpu().tolist()]
+        selected_index = select_mask_index(mask_areas, confidence_values)
+        mask = masks[selected_index] > 0.5
         selected_confidence = (
             confidence_values[selected_index]
             if selected_index < len(confidence_values)
@@ -415,6 +458,10 @@ def infer_pair(paths, scales, confidence, progress):
         if not ok:
             raise RuntimeError("無法儲存推論圖片")
         encoded.tofile(str(sample))
+        # Keep the masks shown on the result image as YOLO-seg labels (samples/<role>.txt) so
+        # images reviewed as correct can go straight into vendor fine-tuning. Never blocks grading.
+        if training_labels.write_result_labels(result, sample) is not None:
+            training_labels.save_class_names(product_review.REVIEW_DIR, role, model.names)
         metadata["sample_frames"].append(str(sample))
         metadata["cameras"][role] = {
             "photo": paths[role],

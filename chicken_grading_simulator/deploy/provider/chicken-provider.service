@@ -1,0 +1,29 @@
+# /etc/systemd/system/chicken-provider.service — runs the receiver behind Caddy.
+[Unit]
+Description=Chicken review package receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=chicken-provider
+Group=chicken-provider
+WorkingDirectory=/opt/chicken-provider
+Environment=CHICKEN_PROVIDER_CREDENTIALS_FILE=/etc/chicken-provider/credentials.json
+Environment=CHICKEN_PROVIDER_DATA_DIR=/srv/chicken-review-inbox
+# Received packages: <DATA_DIR>/<site_id>_<YYYYMMDD>/<device_id>_<key>.zip (date in this time zone)
+Environment=TZ=Asia/Taipei
+# Listen on localhost only; Caddy terminates HTTPS and forwards to this port.
+# One worker: the receiver records uploads in a single SQLite file.
+ExecStart=/opt/chicken-provider/.venv/bin/uvicorn scripts.provider_sync_server:app --host 127.0.0.1 --port 8000 --workers 1 --no-server-header
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/srv/chicken-review-inbox
+
+[Install]
+WantedBy=multi-user.target

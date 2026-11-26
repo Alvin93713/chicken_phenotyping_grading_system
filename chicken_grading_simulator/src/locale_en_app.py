@@ -1,0 +1,220 @@
+"""English UI text for app.py (masthead, navigation, hardware, data management, grading,
+calibration helpers, final scan) plus messages raised by database.py / grading.py /
+inference_utils.py.  Keys are the Chinese source strings (templates keep their {name} placeholders)."""
+
+EN = {
+    # ---- browser title / masthead / navigation ----
+    "雞隻表型資料分級與亮燈篩選系統": "Chicken Phenotype Grading & Light Sorting",
+    "紅羽土雞表型分級系統": "Red-feather Native Chicken Phenotype Grading",
+    "掃描識別 · 表型量測 · 分級亮燈 · 品質監控": "Scan ID · Measure · Grade & Light · Quality",
+    "功能選擇": "Pages",
+    "硬體連接設定": "Hardware",
+    "雞隻資料管理": "Chicken Data",
+    "分級門檻設定": "Grading Thresholds",
+    "相機調整": "Camera Setup",
+    "比例尺校正": "Scale Calibration",
+    "掃描 QR code 與表型輸入": "Scan & Phenotype Entry",
+    "再次掃描與亮燈判定": "Final Scan & Light",
+    "模型品質監控": "Model Quality",
+    "案例審核": "Case Review",
+    "資料與模型維護": "Data & Model Upkeep",
+
+    # ---- inference frames / background queue ----
+    "目前沒有可顯示的推論影格。": "No inference frames to show yet.",
+    "YOLO推論影格": "YOLO inference frames",
+    "背景推論任務佇列": "Background inference queue",
+    "目前沒有背景推論任務。": "No background inference jobs.",
+    "查看已完成推論影格": "View completed inference frames",
+    "選擇推論任務": "Select inference job",
+    "背景仍有任務執行中，可繼續掃描下一隻 chicken ID。":
+        "Jobs are still running in the background; you can scan the next chicken ID.",
+    "狀態": "Status",
+    "進度": "Progress",
+    "訊息": "Message",
+    "體重(g)": "Weight (g)",
+    "雞冠面積(cm²)": "Comb area (cm²)",
+    "腳脛寬度(cm)": "Shank width (cm)",
+    "腳脛長度(cm)": "Shank length (cm)",
+    "初步分級": "Preliminary grade",
+    "初步燈號": "Preliminary light",
+    "更新時間": "Updated",
+
+    # ---- thresholds ----
+    "目前資料庫沒有已儲存的分級門檻，請先在「分級門檻設定」執行一次分級。":
+        "No grading thresholds are saved yet. Run grading once on the \"Grading Thresholds\" page first.",
+    "目前尚未儲存分級門檻。請設定門檻後按「確認設定門檻」。":
+        "No thresholds saved yet. Set them and press \"Apply thresholds\".",
+    "啟用": "On",
+    "停用": "Off",
+    "體重": "Weight",
+    "雞冠面積": "Comb area",
+    "腳脛寬度": "Shank width",
+    "腳脛長度": "Shank length",
+
+    # ---- hardware page ----
+    "掃碼器、Arduino 燈號與 RS485/USB 秤重設備可在同一畫面完成設定與測試。":
+        "Set up and test the scanner, Arduino lights and RS485/USB scale on one screen.",
+    "掃碼器": "Scanner",
+    "USB HID 模式等同鍵盤輸入，不需要指定 COM。": "USB HID mode acts as a keyboard; no COM port needed.",
+    "掃碼器輸入測試": "Scanner input test",
+    "進入此頁後可直接掃描；掃描槍送出 Enter 後會自動記錄最後掃描內容。":
+        "Scan right away on this page; when the scanner sends Enter the last scan is recorded.",
+    "最後掃描：{value}": "Last scan: {value}",
+    "等待掃描輸入": "Waiting for a scan",
+    "燈號 COM": "Light COM",
+    "啟用 Arduino 實體燈號": "Enable Arduino lights",
+    "例如 COM5 或 /dev/ttyACM0": "e.g. COM5 or /dev/ttyACM0",
+    "測試燈號": "Test lights",
+    "請先選擇 Arduino serial port。": "Select the Arduino serial port first.",
+    "已送出 TEST 指令。": "TEST command sent.",
+    " 回覆：{replies}": " Reply: {replies}",
+    "Arduino 連線失敗：{error}": "Arduino connection failed: {error}",
+    "關閉燈號": "Lights off",
+    "已送出 LIGHT:OFF 指令。": "LIGHT:OFF command sent.",
+    "重新連線 Arduino": "Reconnect Arduino",
+    "Arduino 重新連線成功。": "Arduino reconnected.",
+    "Arduino 重新連線失敗：{error}": "Arduino reconnect failed: {error}",
+    "目前連接：{port}": "Connected: {port}",
+    "秤重設備": "Scale",
+    "RS485 轉 USB · {baud} bps · STX/ASCII/ETX": "RS485 to USB · {baud} bps · STX/ASCII/ETX",
+    "秤重設備 serial port": "Scale serial port",
+    "例如 COM6 或 /dev/ttyUSB0": "e.g. COM6 or /dev/ttyUSB0",
+    "測試讀值": "Test reading",
+    "請先選擇秤重設備 serial port。": "Select the scale serial port first.",
+    " 原始封包：{packets}": " Raw packets: {packets}",
+    " 錯誤：{errors}": " Errors: {errors}",
+    "2 秒內沒有取得有效重量。": "No valid weight within 2 seconds.",
+    "平均 {average} g · 最新 {latest} g · {count} 筆": "Average {average} g · latest {latest} g · {count} readings",
+    "原始封包：{packets}": "Raw packets: {packets}",
+    "秤重設備連線失敗：{error}": "Scale connection failed: {error}",
+    "清除紀錄": "Clear history",
+    "已清除秤重即時紀錄。": "Live scale history cleared.",
+
+    # ---- scanner input ----
+    "USB 掃描槍掃描 / 手動輸入 chicken ID": "Scan with USB scanner / type chicken ID",
+    "此欄位會自動聚焦；掃描槍送出 Enter 後會直接確認 chicken ID。":
+        "This field is focused automatically; the chicken ID is confirmed when the scanner sends Enter.",
+    "按第一顆實體按鈕後，使用 USB 掃描槍掃描 chicken ID；掃描槍送出 Enter 或按「確定」即可確認。":
+        "After pressing the first physical button, scan the chicken ID with the USB scanner; "
+        "confirm with the scanner's Enter or press \"OK\".",
+    "確定": "OK",
+    "已確認 chicken ID：{chicken_id}": "Confirmed chicken ID: {chicken_id}",
+
+    # ---- calibration point picker ----
+    "已選取 {count}/2 點：{points}": "Selected {count}/2 points: {points}",
+    "請依序點選比例尺兩端": "click both ends of the ruler in turn",
+    "確定校正": "Apply calibration",
+    "校正已套用：cm_per_pixel = {value}": "Calibration applied: cm_per_pixel = {value}",
+    "兩個校正點距離為 0，請清除後重新點選。": "The two points are at the same spot. Clear them and pick again.",
+    "清除校正點": "Clear points",
+
+    # ---- live scale panel ----
+    "即時秤重": "Live weight",
+    "尚未設定秤重設備 serial port，請先到「硬體連接設定」選擇秤重設備。":
+        "No scale serial port set. Choose the scale on the \"Hardware\" page first.",
+    "正在收集本次量測的 2 秒平均重量；完成後將停止秤重並開始雙相機拍攝。":
+        "Collecting the 2-second average weight; the scale then stops and both cameras take photos.",
+    "本次最終重量 (g)": "Final weight (g)",
+    "最終平均樣本數": "Samples averaged",
+    "本次重量已鎖定，秤重設備已停止收集資料。": "Weight locked; the scale has stopped collecting.",
+    "最新重量 (g)": "Latest weight (g)",
+    "{seconds} 秒平均 (g)": "{seconds}-s average (g)",
+    "有效樣本數": "Valid samples",
+    "最近封包：{packets}": "Recent packets: {packets}",
+    "秤重設備讀取失敗：{error}": "Scale read failed: {error}",
+
+    # ---- data management ----
+    "集中檢視所有表型資料；新增、修改與刪除操作收納於下方。":
+        "All phenotype records in one place; add, edit and delete below.",
+    "資料筆數": "Records",
+    "建立 20 筆範例資料": "Create 20 sample records",
+    "已新增 {count} 筆範例資料。": "Added {count} sample records.",
+    "匯入 CSV": "Import CSV",
+    "CSV 匯入完成：新增 {inserted} 筆，更新 {updated} 筆。":
+        "CSV imported: {inserted} added, {updated} updated.",
+    "匯出 CSV": "Export CSV",
+    "新增雞隻": "Add chicken",
+    "體重 (g)": "Weight (g)",
+    "雞冠面積 (cm²)": "Comb area (cm²)",
+    "腳脛寬度 (cm)": "Shank width (cm)",
+    "腳脛長度 (cm)": "Shank length (cm)",
+    "新增資料": "Add record",
+    "已新增雞隻：{chicken_id}": "Chicken added: {chicken_id}",
+    "修改或刪除雞隻": "Edit or delete chicken",
+    "選擇 chicken ID": "Select chicken ID",
+    "儲存修改": "Save changes",
+    "刪除此雞隻": "Delete this chicken",
+    "已更新雞隻：{chicken_id}": "Chicken updated: {chicken_id}",
+    "已刪除雞隻：{chicken_id}": "Chicken deleted: {chicken_id}",
+    "目前沒有可修改的雞隻資料。": "No chicken records to edit.",
+
+    # ---- grading thresholds page ----
+    "設定通過與備用門檻後，系統會更新所有雞隻的通過、備用及不通過結果。":
+        "Set the pass and standby thresholds; every chicken is then re-graded as Pass, Standby or Fail.",
+    "通過門檻": "Pass thresholds",
+    "備用門檻": "Standby thresholds",
+    "確認設定門檻": "Apply thresholds",
+    "分級完成，已更新資料庫。": "Grading done; database updated.",
+    "總筆數": "Total",
+    "通過筆數": "Pass",
+    "備用筆數": "Standby",
+    "不通過筆數": "Fail",
+    "通過比例": "Pass rate",
+    "備用比例": "Standby rate",
+    "不通過比例": "Fail rate",
+    "查看本次分級明細": "View grading details",
+    "查看目前雞隻資料": "View current chicken data",
+
+    # ---- final scan & light ----
+    "判定結果：{status}": "Result: {status}",
+    "找不到此 chicken ID。": "Chicken ID not found.",
+    "已依目前資料庫分級門檻更新最終篩選結果。": "Final result updated with the saved grading thresholds.",
+    "最終篩選失敗：{error}": "Final grading failed: {error}",
+    "通過 / 綠燈": "Pass / Green",
+    "備用 / 黃燈": "Standby / Yellow",
+    "不通過 / 紅燈": "Fail / Red",
+    "尚未完成分級": "Not graded yet",
+    "已啟用實體燈號，但尚未選擇 Arduino serial port。":
+        "Lights are enabled but no Arduino serial port is selected.",
+    "已送出實體燈號指令：{commands}，將亮燈 {seconds} 秒後自動關閉":
+        "Light command sent: {commands}; the light turns off after {seconds} s",
+    "；Arduino 回覆：{replies}": "; Arduino reply: {replies}",
+    "Arduino 燈號控制失敗：{error}": "Arduino light control failed: {error}",
+    "再次掃描既有 QR code，立即顯示最終分級並控制綠燈、黃燈或紅燈。":
+        "Scan an existing QR code again to show the final grade and light the green, yellow or red lamp.",
+    "請輸入 chicken ID，或掃描既有 QR code。": "Enter a chicken ID or scan an existing QR code.",
+    "上一筆已完成第二階段掃描：{chicken_id}": "Previous chicken finished the second scan: {chicken_id}",
+    "已選擇 chicken ID：{chicken_id}": "Selected chicken ID: {chicken_id}",
+    "已記錄第二階段掃描完成：{chicken_id}，時間：{time}": "Second scan recorded: {chicken_id} at {time}",
+
+    # ---- errors raised by grading.py / database.py / inference_utils.py ----
+    "請至少選擇一個分級特徵。": "Select at least one grading feature.",
+    "請至少設定一個大於 0 的通過門檻或備用門檻。": "Set at least one pass or standby threshold above 0.",
+    "不支援的分級欄位：{feature}": "Unsupported grading field: {feature}",
+    "請設定 {feature} 的通過門檻。": "Set the pass threshold for {feature}.",
+    "請設定 {feature} 的備用門檻。": "Set the standby threshold for {feature}.",
+    "{feature} 門檻不可小於 0。": "{feature} thresholds cannot be below 0.",
+    "{feature} 的備用門檻不可高於通過門檻。": "The {feature} standby threshold cannot be above its pass threshold.",
+    "chicken_id 已存在：{chicken_id}": "chicken_id already exists: {chicken_id}",
+    "查無此雞隻：{chicken_id}": "Chicken not found: {chicken_id}",
+    "CSV 缺少必要欄位：{columns}": "CSV is missing required columns: {columns}",
+    "找不到 YOLO segmentation 權重：{path}": "YOLO segmentation weights not found: {path}",
+    "無法開啟攝影機 ID {camera}。請確認鏡頭已連接，或調整 camera ID。":
+        "Cannot open camera ID {camera}. Check that the camera is connected, or change the camera ID.",
+    "攝影機已開啟，但無法拍攝校正照片。": "The camera opened but could not take the calibration photo.",
+    "無法將校正照片編碼為 PNG。": "Could not encode the calibration photo as PNG.",
+    "無法儲存校正照片：{path}": "Could not save the calibration photo: {path}",
+    "無法開啟攝影機 ID {camera}。": "Cannot open camera ID {camera}.",
+    "攝影機已開啟，但無法讀取畫面。": "The camera opened but no frame could be read.",
+    "分級結果": "Grading result",
+    "納入判斷的特徵": "Features used for grading",
+    "請至少勾選一個分級特徵。": "Tick at least one grading feature.",
+    "{feature} 已勾選，請設定大於 0 的門檻，或取消勾選。": "{feature} is ticked: set a threshold above 0, or untick it.",
+    "拍攝中…": "Capturing…",
+    # trimmed UI text
+    '背景任務執行中': 'Background job running',
+    '尚未設定秤重設備': 'Scale not set up',
+    '收集 2 秒平均重量中…': 'Collecting 2 s average weight…',
+    '重量已鎖定': 'Weight locked',
+    '尚未設定分級門檻': 'No grading thresholds set',
+}

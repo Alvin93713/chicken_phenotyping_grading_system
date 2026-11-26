@@ -58,3 +58,8 @@ chicken_grading_simulator/data/calibration_captures/
 chicken_grading_simulator/data/comb_shank_sam_video/
 chicken_grading_simulator/data/_sam2_demo_input/
 chicken_grading_simulator/data/_sam2_selected_input/
+
+# Local backups / scratch
+backup_before_*/
+ui_backup_*/
+d.txt

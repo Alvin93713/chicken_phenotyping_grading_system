@@ -1,1 +1,12 @@
 data/snapshots/
+provider_inbox/
+.env
+*.pem
+*.key
+data/product_review/secure_sync_config.json
+
+# Per-machine runtime state (camera IDs/calibration, UI prefs, pinned model versions, imported models)
+data/ui_style.json
+data/model_versions.json
+data/camera_settings.json
+models/

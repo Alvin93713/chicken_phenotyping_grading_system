@@ -1,4 +1,6 @@
 streamlit==1.59.1
+# starlette 1.8+ breaks Streamlit 1.59.1's gzip middleware (HTTP 500 on downloads/media)
+starlette==1.7.0
 streamlit-image-coordinates==0.4.0
 pandas==3.0.3
 numpy==2.5.1
@@ -12,6 +14,7 @@ ultralytics==8.4.90
 ultralytics-thop==2.0.20
 tqdm==4.68.4
 pyserial==3.5
+requests>=2.31,<3
 altair==6.2.2
 pyarrow==24.0.0
 matplotlib==3.11.0

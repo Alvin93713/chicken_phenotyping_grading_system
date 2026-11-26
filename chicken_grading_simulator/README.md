@@ -12,6 +12,16 @@ This Streamlit application provides a local workflow for chicken phenotype measu
 6. Apply configurable grading thresholds.
 7. Output pass, standby, or fail results through the UI and Arduino-controlled lights.
 
+## Secure Review Sync
+
+The product review workflow can queue independently reviewed comb and shank
+images for secure background delivery to the provider. Incorrect and uncertain
+results, as well as correct results, are all queued for delivery.
+Transport requires HTTPS, certificate verification, HMAC-SHA256 request
+signatures, timestamps, nonces, and SHA-256 content verification. Chicken IDs
+are pseudonymized before transmission. See `SECURE_SYNC.md` for deployment and
+secret configuration.
+
 ## Hardware Integration
 
 The system is designed to work with:

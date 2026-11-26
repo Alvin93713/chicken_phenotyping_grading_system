@@ -111,14 +111,15 @@ nvidia-smi
 
 ```bash
 cd ~/chicken_grading_system/chicken_grading_simulator
-ls -lh app.py best.pt data/chicken_phenotype.db
+ls -lh src/app.py best_comb.pt best_shank.pt data/chicken_phenotype.db
 ls qrcodes | head
 ```
 
 必要檔案：
 
-- `app.py`
-- `best.pt`
+- `src/app.py`
+- `best_comb.pt`（雞冠模型）
+- `best_shank.pt`（腳脛模型）
 - `data/chicken_phenotype.db`
 - `qrcodes/C001.png` 到 `qrcodes/C020.png`
 

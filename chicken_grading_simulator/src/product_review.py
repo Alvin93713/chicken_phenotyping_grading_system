@@ -16,6 +16,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[1]
 REVIEW_DIR = BASE_DIR / "data" / "product_review"
 REVIEW_DB_PATH = REVIEW_DIR / "product_review.db"
+DEMO_ASSET_DIR = REVIEW_DIR / "demo_assets"
 DEFAULT_REVIEW_CONFIDENCE = float(os.environ.get("CHICKEN_REVIEW_CONFIDENCE", "0.70"))
 DEFAULT_QA_SAMPLE_RATE = float(os.environ.get("CHICKEN_REVIEW_SAMPLE_RATE", "0.05"))
 DECISIONS = ("待審核", "正確", "不正確", "無法判斷")
@@ -25,10 +26,22 @@ def now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+_SCHEMA_READY: set[str] = set()
+
+
 def get_connection() -> sqlite3.Connection:
     REVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    key = str(REVIEW_DB_PATH)
+    ready = key in _SCHEMA_READY and Path(REVIEW_DB_PATH).exists()
     connection = sqlite3.connect(REVIEW_DB_PATH)
     connection.row_factory = sqlite3.Row
+    if not ready:  # schema / migration only once per database file per process
+        _ensure_schema(connection)
+        _SCHEMA_READY.add(key)
+    return connection
+
+
+def _ensure_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS review_cases (
@@ -53,7 +66,30 @@ def get_connection() -> sqlite3.Connection:
         )
         """
     )
-    return connection
+    columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(review_cases)").fetchall()
+    }
+    for column in ("comb_review_state", "shank_review_state"):
+        if column not in columns:
+            connection.execute(
+                f"ALTER TABLE review_cases ADD COLUMN {column} TEXT NOT NULL DEFAULT '待審核'"
+            )
+            connection.execute(
+                f"UPDATE review_cases SET {column} = review_state"
+            )
+    # One note per image: a COMB note must not be overwritten by the SHANK review (older rows: copy the
+    # single case note into both).
+    for column in ("comb_reviewer_note", "shank_reviewer_note"):
+        if column not in columns:
+            connection.execute(f"ALTER TABLE review_cases ADD COLUMN {column} TEXT")
+            connection.execute(f"UPDATE review_cases SET {column} = reviewer_note")
+    connection.commit()
+
+
+def role_note(case: dict[str, object], role: str) -> str:
+    """The reviewer's note for one image (comb or shank) of a case."""
+    return str(case.get(f"{role}_reviewer_note") or "")
 
 
 def _qa_sample_selected(job_id: str, rate: float) -> bool:
@@ -89,7 +125,7 @@ def record_case(
     if failed:
         priority, reason = "高", "推論失敗"
     elif low_confidence:
-        priority, reason = "高", f"最低信心 {minimum_confidence:.3f}" if minimum_confidence is not None else "缺少信心分數"
+        priority, reason = "高", f"最低信心 {minimum_confidence:.2f}" if minimum_confidence is not None else "缺少信心分數"
     else:
         priority, reason = "一般", "例行品質抽樣"
 
@@ -206,20 +242,54 @@ def get_case(case_id: str) -> dict[str, object] | None:
     return _decode_row(row) if row else None
 
 
-def review_case(case_id: str, decision: str, note: str = "") -> None:
+def _combined_review_state(comb_state: str, shank_state: str) -> str:
+    states = {comb_state, shank_state}
+    if "不正確" in states:
+        return "不正確"
+    if "無法判斷" in states:
+        return "無法判斷"
+    if states == {"正確"}:
+        return "正確"
+    return "待審核"
+
+
+def review_case_role(case_id: str, role: str, decision: str, note: str = "") -> None:
+    if role not in ("comb", "shank"):
+        raise ValueError(f"不支援的影像類型：{role}")
     if decision not in DECISIONS:
         raise ValueError(f"不支援的審核結果：{decision}")
     with closing(get_connection()) as connection, connection:
+        row = connection.execute(
+            "SELECT comb_review_state, shank_review_state FROM review_cases WHERE case_id = ?",
+            (case_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"找不到審核案例：{case_id}")
+        states = {
+            "comb": row["comb_review_state"],
+            "shank": row["shank_review_state"],
+        }
+        states[role] = decision
+        combined_state = _combined_review_state(states["comb"], states["shank"])
         cursor = connection.execute(
-            """
+            f"""
             UPDATE review_cases
-            SET review_state = ?, reviewer_note = ?, reviewed_at = ?
+            SET {role}_review_state = ?, review_state = ?,
+                {role}_reviewer_note = ?, reviewer_note = ?, reviewed_at = ?
             WHERE case_id = ?
             """,
-            (decision, note.strip(), now_text(), case_id),
+            (decision, combined_state, note.strip(), note.strip(), now_text(), case_id),
         )
         if cursor.rowcount == 0:
             raise ValueError(f"找不到審核案例：{case_id}")
+    # Nothing is uploaded per review: the farm sends a complete snapshot of all reviewed images
+    # when they press「回傳」(see secure_sync.request_snapshot).
+
+
+def review_case(case_id: str, decision: str, note: str = "") -> None:
+    """Apply a legacy whole-case decision to both camera results."""
+    review_case_role(case_id, "comb", decision, note)
+    review_case_role(case_id, "shank", decision, note)
 
 
 def review_summary() -> dict[str, int]:
@@ -233,87 +303,274 @@ def review_summary() -> dict[str, int]:
     return counts
 
 
-def export_review_bundle(states=("不正確", "無法判斷")) -> bytes:
-    cases = [case for case in list_cases() if case["review_state"] in states]
-    buffer = io.BytesIO()
-    manifest_rows = []
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for case in cases:
-            row = {
-                "case_id": case["case_id"],
-                "chicken_id": case["chicken_id"],
-                "review_state": case["review_state"],
-                "priority": case["priority"],
-                "reason": case["reason"],
-                "minimum_confidence": case["minimum_confidence"],
-                "reviewer_note": case["reviewer_note"] or "",
-                "created_at": case["created_at"],
-            }
-            for category in ("source_paths", "result_paths"):
-                for role, path_text in case[category].items():
-                    path = Path(path_text)
-                    if path.is_file():
-                        archive_name = f"cases/{case['case_id']}/{category.removesuffix('_paths')}_{role}{path.suffix.lower()}"
-                        archive.write(path, archive_name)
-                        row[f"{category}_{role}"] = archive_name
-            manifest_rows.append(row)
+EXPORT_STATES = ("正確", "無法判斷", "不正確")
 
-        fields = sorted({key for row in manifest_rows for key in row})
-        csv_buffer = io.StringIO()
-        writer = csv.DictWriter(csv_buffer, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(manifest_rows)
-        archive.writestr("manifest.csv", csv_buffer.getvalue().encode("utf-8-sig"))
-        archive.writestr("manifest.json", json.dumps(manifest_rows, ensure_ascii=False, indent=2))
+
+def _exported_roles(case: dict[str, object], states) -> list[str]:
+    return [role for role in ("comb", "shank") if case[f"{role}_review_state"] in states]
+
+
+def export_counts(states=EXPORT_STATES, cases=None) -> dict[str, int]:
+    """Count reviewed images (per comb/shank role) that the vendor bundle will contain.
+    Pass `cases` (from list_cases()) to reuse an already-loaded list."""
+    counts = {state: 0 for state in states}
+    for case in list_cases() if cases is None else cases:
+        for role in _exported_roles(case, states):
+            counts[case[f"{role}_review_state"]] += 1
+    return counts
+
+
+# ---------------------------------------------------------------------------
+# Vendor fine-tuning bundle
+#   <role>/data.yaml
+#   <role>/train_ready/images|labels   reviewed correct AND has a label -> train as-is
+#   <role>/to_relabel/images|labels    incorrect / uncertain / correct-but-unlabelled -> fix first
+#   <role>/to_relabel/review_notes.csv what to look at, worst first
+#   manifest.csv, manifest.json, README.txt
+# ---------------------------------------------------------------------------
+DECISION_CODES = {"正確": "correct", "無法判斷": "uncertain", "不正確": "incorrect"}
+SPLIT_TRAIN_READY = "train_ready"
+SPLIT_TO_RELABEL = "to_relabel"
+BUNDLE_MANIFEST_FIELDS = (
+    "role",
+    "split",
+    "image",
+    "label",
+    "decision",
+    "issue",
+    "reviewer_note",
+    "confidence",
+    "case_id",
+    "chicken_id",
+    "reason",
+    "model",
+    "measurements",
+    "captured_at",
+    "reviewed_at",
+)
+REVIEW_NOTES_FIELDS = (
+    "image",
+    "label",
+    "decision",
+    "issue",
+    "reviewer_note",
+    "confidence",
+    "case_id",
+    "captured_at",
+    "reviewed_at",
+)
+BUNDLE_README = """chicken_review_bundle - vendor fine-tuning package
+====================================================
+One folder per model (comb/, shank/). Each is an Ultralytics YOLO segmentation dataset.
+
+<role>/train_ready/   Reviewed CORRECT by the farm. images/ + labels/ (the model's masks,
+                      confirmed by a person). Add to your training set as-is.
+<role>/to_relabel/    Reviewed INCORRECT or UNCERTAIN (plus correct images that have no saved
+                      label). labels/ holds the model's prediction as a pre-annotation.
+                      1. Import images/ + labels/ into CVAT / Label Studio / Roboflow (YOLO format).
+                      2. Fix or delete polygons; discard unusable images.
+                         An image with nothing to detect can keep an empty label (negative sample).
+                      3. Export YOLO and move image + label into train_ready/.
+                      review_notes.csv lists every image, worst first, with the farm's note.
+<role>/data.yaml      Class names matching the label ids.
+
+File names: <case_id>_<role>.<ext>; image and label share the same stem.
+manifest.csv / manifest.json: one row per image (decision, split, note, confidence, times).
+
+Decisions: correct = 正確, incorrect = 不正確, uncertain = 無法判斷.
+issue: missing_label = no saved label (create one before training);
+       missing_image = source photo no longer on the device (not included).
+"""
+
+
+def _bundle_entries(states=EXPORT_STATES, cases=None) -> list[dict[str, object]]:
+    """One entry per reviewed comb/shank image, with its destination in the bundle."""
+    from training_labels import label_path_for
+
+    entries = []
+    for case in list_cases() if cases is None else cases:
+        for role in _exported_roles(case, states):
+            decision = case[f"{role}_review_state"]
+            source_text = case["source_paths"].get(role, "")
+            result_text = case["result_paths"].get(role, "")
+            source = Path(source_text) if source_text else None
+            label = label_path_for(result_text) if result_text else None
+            has_image = bool(source and source.is_file())
+            has_label = bool(label and label.is_file())
+            if not has_image:
+                issue = "missing_image"
+            elif not has_label:
+                issue = "missing_label"
+            else:
+                issue = ""
+            split = SPLIT_TRAIN_READY if decision == "正確" and has_label and has_image else SPLIT_TO_RELABEL
+            stem = f"{case['case_id']}_{role}"
+            entries.append(
+                {
+                    "case": case,
+                    "role": role,
+                    "decision": DECISION_CODES.get(decision, decision),
+                    "split": split if has_image else "",
+                    "issue": issue,
+                    "source": source if has_image else None,
+                    "label": label if has_label else None,
+                    "image_name": f"{role}/{split}/images/{stem}{source.suffix.lower()}" if has_image else "",
+                    "label_name": f"{role}/{split}/labels/{stem}.txt" if has_image and has_label else "",
+                }
+            )
+    return entries
+
+
+def _relabel_priority(entry: dict[str, object]) -> tuple:
+    order = {"incorrect": 0, "uncertain": 1, "correct": 2}
+    confidence = entry["case"]["role_confidences"].get(entry["role"])
+    return (order.get(str(entry["decision"]), 3), float(confidence) if confidence is not None else -1.0)
+
+
+def _csv_bytes(fields, rows) -> bytes:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue().encode("utf-8-sig")
+
+
+def export_review_bundle(states=EXPORT_STATES) -> bytes:
+    """In-memory bundle for the on-site「下載審核資料包」button (keeps real chicken IDs)."""
+    buffer = io.BytesIO()
+    write_review_bundle(buffer, states)
     return buffer.getvalue()
 
 
-def seed_demo_cases() -> int:
-    from PIL import Image, ImageDraw
+def write_review_bundle(target, states=EXPORT_STATES, subject_id=None, extra_json=None) -> dict[str, int]:
+    """Write the fine-tuning bundle of every reviewed comb/shank image to a path or file object.
 
-    assets = REVIEW_DIR / "demo_assets"
-    assets.mkdir(parents=True, exist_ok=True)
-    demo = (
-        ("DEMO-HIGH", "C-DEMO-001", {"comb": 0.93, "shank": 0.89}, "例行品質抽樣"),
-        ("DEMO-LOW", "C-DEMO-002", {"comb": 0.46, "shank": 0.81}, "低信心"),
-        ("DEMO-FAIL", "C-DEMO-003", {"comb": None, "shank": None}, "推論失敗"),
-    )
-    created = 0
-    for index, (job_id, chicken_id, confidences, kind) in enumerate(demo):
-        sources, results = {}, {}
+    Correct images with a saved label go to <role>/train_ready/; incorrect, uncertain and
+    unlabelled images go to <role>/to_relabel/ with the model's prediction as a pre-annotation.
+    Images still pending review are left out.
+
+    subject_id: optional callable mapping a chicken ID to a pseudonym (used for network uploads so
+    real chicken IDs never leave the farm). extra_json: {archive name: JSON-serialisable object}.
+    Returns the bundle_summary-style counts of what was written.
+    """
+    from training_labels import data_yaml, load_class_names
+
+    entries = _bundle_entries(states)
+    manifest_rows = []
+    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for role in ("comb", "shank"):
-            source = assets / f"{job_id}_{role}_source.png"
-            result = assets / f"{job_id}_{role}_result.png"
-            if not source.exists():
-                image = Image.new("RGB", (640, 360), (32, 38, 45))
-                draw = ImageDraw.Draw(image)
-                draw.rectangle((28, 28, 612, 332), outline=(94, 107, 120), width=3)
-                if role == "comb":
-                    draw.ellipse((210, 95, 430, 280), fill=(167, 71, 72))
-                else:
-                    draw.rounded_rectangle((280, 55, 360, 305), radius=30, fill=(171, 147, 116))
-                draw.text((45, 45), f"{chicken_id} / {role.upper()} / SOURCE", fill=(235, 239, 242))
-                image.save(source)
-                overlay = image.copy()
-                overlay_draw = ImageDraw.Draw(overlay)
-                if role == "comb":
-                    overlay_draw.ellipse((205, 90, 435, 285), outline=(35, 214, 118), width=8)
-                else:
-                    overlay_draw.rounded_rectangle((275, 50, 365, 310), radius=34, outline=(35, 214, 118), width=8)
-                overlay_draw.text((45, 300), f"YOLO CONF: {confidences[role] if confidences[role] is not None else 'N/A'}", fill=(255, 205, 52))
-                overlay.save(result)
-            sources[role], results[role] = str(source), str(result)
+            for split in (SPLIT_TRAIN_READY, SPLIT_TO_RELABEL):
+                for kind in ("images", "labels"):
+                    archive.writestr(f"{role}/{split}/{kind}/", b"")
+            archive.writestr(f"{role}/data.yaml", data_yaml(role, load_class_names(REVIEW_DIR, role)))
+
+        for entry in entries:
+            case = entry["case"]
+            if entry["source"] is not None:
+                # Photos are already compressed: store them as-is to save CPU on the device.
+                archive.write(entry["source"], entry["image_name"], compress_type=zipfile.ZIP_STORED)
+            if entry["label"] is not None:
+                archive.write(entry["label"], entry["label_name"])
+            chicken = str(case["chicken_id"])
+            manifest_rows.append(
+                {
+                    "role": entry["role"],
+                    "split": entry["split"],
+                    "image": entry["image_name"],
+                    "label": entry["label_name"],
+                    "decision": entry["decision"],
+                    "issue": entry["issue"],
+                    "reviewer_note": role_note(case, entry["role"]),
+                    "confidence": case["role_confidences"].get(entry["role"]),
+                    "case_id": case["case_id"],
+                    "chicken_id": subject_id(chicken) if subject_id else chicken,
+                    "reason": case["reason"],
+                    "model": Path(str(case["models"].get(entry["role"], ""))).name,
+                    "measurements": json.dumps(case["measurements"] or {}, ensure_ascii=False),
+                    "captured_at": case["created_at"],
+                    "reviewed_at": case["reviewed_at"],
+                }
+            )
+
+        for role in ("comb", "shank"):
+            relabel = sorted(
+                (e for e in entries if e["role"] == role and e["split"] == SPLIT_TO_RELABEL),
+                key=_relabel_priority,
+            )
+            notes = [
+                {
+                    "image": Path(str(e["image_name"])).name,
+                    "label": Path(str(e["label_name"])).name if e["label_name"] else "",
+                    "decision": e["decision"],
+                    "issue": e["issue"],
+                    "reviewer_note": role_note(e["case"], role),
+                    "confidence": e["case"]["role_confidences"].get(role),
+                    "case_id": e["case"]["case_id"],
+                    "captured_at": e["case"]["created_at"],
+                    "reviewed_at": e["case"]["reviewed_at"],
+                }
+                for e in relabel
+            ]
+            archive.writestr(f"{role}/{SPLIT_TO_RELABEL}/review_notes.csv", _csv_bytes(REVIEW_NOTES_FIELDS, notes))
+
+        archive.writestr("manifest.csv", _csv_bytes(BUNDLE_MANIFEST_FIELDS, manifest_rows))
+        archive.writestr("manifest.json", json.dumps(manifest_rows, ensure_ascii=False, indent=2))
+        archive.writestr("README.txt", BUNDLE_README.encode("utf-8"))
+        for name, payload in (extra_json or {}).items():
+            archive.writestr(name, json.dumps(payload, ensure_ascii=False, indent=2))
+    return {"images": len(manifest_rows), **_entry_counts(entries)}
+
+
+def _entry_counts(entries) -> dict[str, int]:
+    return {
+        "train_ready": sum(1 for e in entries if e["split"] == SPLIT_TRAIN_READY),
+        "to_relabel": sum(1 for e in entries if e["split"] == SPLIT_TO_RELABEL),
+        "missing_label": sum(1 for e in entries if e["issue"] == "missing_label"),
+        "missing_image": sum(1 for e in entries if e["issue"] == "missing_image"),
+    }
+
+
+def bundle_summary(states=EXPORT_STATES, cases=None) -> dict[str, int]:
+    """Counts shown in the UI: how many images are train-ready vs need relabelling."""
+    return _entry_counts(_bundle_entries(states, cases))
+
+
+def seed_demo_cases() -> int:
+    assets = DEMO_ASSET_DIR
+    demo = (
+        ("DEMO-REAL-01", "C-DEMO-001", {"comb": None, "shank": 0.8962}),
+        ("DEMO-REAL-02", "C-DEMO-002", {"comb": 0.9693, "shank": 0.8775}),
+        ("DEMO-REAL-03", "C-DEMO-003", {"comb": 0.9767, "shank": 0.8666}),
+        ("DEMO-REAL-04", "C-DEMO-004", {"comb": 0.9347, "shank": 0.8294}),
+        ("DEMO-REAL-05", "C-DEMO-005", {"comb": 0.9345, "shank": 0.8577}),
+    )
+    with closing(get_connection()) as connection, connection:
+        connection.execute("DELETE FROM review_cases WHERE job_id LIKE 'DEMO-%'")
+
+    created = 0
+    for index, (job_id, chicken_id, confidences) in enumerate(demo):
+        sources = {
+            role: str(assets / f"{job_id}_{role}_source.jpg")
+            for role in ("comb", "shank")
+        }
+        results = {
+            role: str(assets / f"{job_id}_{role}_result.jpg")
+            for role in ("comb", "shank")
+        }
+        missing = [path for path in (*sources.values(), *results.values()) if not Path(path).is_file()]
+        if missing:
+            raise FileNotFoundError(f"缺少真實示範影像：{', '.join(missing)}")
         inserted = record_case(
             job_id=job_id,
             chicken_id=chicken_id,
-            pipeline_status="失敗" if kind == "推論失敗" else "已完成",
+            pipeline_status="已完成",
             confidence_threshold=0.25,
             role_confidences=confidences,
             measurements={"weight_g": 2500 + index * 120, "comb_area_cm2": 3.1, "shank_width_cm": 1.4, "shank_length_cm": 4.2},
             source_paths=sources,
             result_paths=results,
             models={"comb": "best_comb.pt", "shank": "best_shank.pt"},
-            error="comb 未偵測到有效遮罩" if kind == "推論失敗" else "",
+            error="comb 未偵測到有效遮罩" if confidences["comb"] is None else "",
             force=True,
         )
         created += int(inserted)

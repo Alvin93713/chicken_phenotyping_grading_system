@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 BAUD_RATE = 115200
@@ -55,6 +56,42 @@ def send_arduino_commands(port: str, commands: List[str], delay_after_open: floa
 def reconnect_arduino(port: str) -> List[str]:
     """Verify that the Arduino serial port can be opened."""
     return send_arduino_commands(port, ["PING"])
+
+
+_off_timers: Dict[str, threading.Timer] = {}
+_off_timers_lock = threading.Lock()
+
+
+def light_for(port: str, commands: List[str], seconds: float) -> List[str]:
+    """Light for `seconds` without blocking: the Arduino switches off by itself (LIGHT_FOR:<color>:<ms>).
+    Firmware without LIGHT_FOR (replies ERR:UNKNOWN:LIGHT_FOR…) gets plain LIGHT commands plus a background
+    off-timer. Any earlier off-timer for this port is cancelled first, so it can't cut the new light short."""
+    with _off_timers_lock:
+        previous = _off_timers.pop(port, None)
+    if previous is not None:
+        previous.cancel()
+    duration_ms = int(seconds * 1000)
+    timed = [
+        command.replace("LIGHT:", "LIGHT_FOR:", 1) + f":{duration_ms}"
+        if command.startswith("LIGHT:") and command != "LIGHT:OFF" else command
+        for command in commands
+    ]
+    replies = send_arduino_commands(port, timed)
+    if any(reply.startswith("ERR:UNKNOWN:LIGHT_FOR") for reply in replies):
+        replies = send_arduino_commands(port, [command for command in commands if command.startswith("LIGHT:")])
+
+        def turn_off() -> None:
+            try:
+                send_arduino_commands(port, ["LIGHT:OFF"], delay_after_open=0.02)
+            except Exception:
+                pass
+
+        timer = threading.Timer(seconds, turn_off)
+        timer.daemon = True
+        with _off_timers_lock:
+            _off_timers[port] = timer
+        timer.start()
+    return replies
 
 
 def commands_for_grade(grade_result: Optional[str]) -> List[str]:

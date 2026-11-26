@@ -23,7 +23,7 @@ Videos, packaged executables, and inference outputs are intentionally excluded f
 
 Required runtime assets include:
 
-- `chicken_grading_simulator/best.pt` for comb segmentation
+- `chicken_grading_simulator/best_comb.pt` for comb segmentation
 - `chicken_grading_simulator/best_shank.pt` for shank segmentation
 - Two local USB cameras
 - USB QR code scanner
@@ -184,7 +184,7 @@ git status --short --branch
 git log -1 --oneline
 ```
 
-The dual-camera deployment branch tracks `best.pt` and `best_shank.pt`. Other
+The dual-camera deployment branch tracks `best_comb.pt` and `best_shank.pt`. Other
 large experimental model weights remain excluded.
 
 ## Intended Use
