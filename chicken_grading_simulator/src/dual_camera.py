@@ -140,6 +140,36 @@ def capture_pair(indices, timeout=3.0):
     raise RuntimeError(t("雙相機拍攝失敗：{error}；未建立推論任務", error=error))
 
 
+def capture_one(index, timeout=3.0):
+    """One fresh frame from one camera (used to calibrate each camera on its own)."""
+    camera = reader(index)
+    requested = time.monotonic()
+    deadline = requested + timeout
+    error = t("等待相機的新畫面")
+    while time.monotonic() < deadline:
+        try:
+            frame, stamp = camera.latest()
+            if stamp >= requested:
+                return frame
+        except RuntimeError as exc:
+            error = str(exc)
+        time.sleep(0.02)
+    raise RuntimeError(t("相機 {index} 拍攝失敗：{error}", index=index, error=error))
+
+
+def save_one(frame, role, kind="calibration_captures"):
+    """Save one camera's photo as data/<kind>/<id>/<role>.png and return its path."""
+    import cv2
+    folder = BASE_DIR / "data" / kind / uuid4().hex
+    folder.mkdir(parents=True)
+    path = folder / f"{role}.png"
+    ok, encoded = cv2.imencode(".png", frame)
+    if not ok:
+        raise RuntimeError(t("無法儲存 {role} 照片", role=role))
+    encoded.tofile(str(path))
+    return str(path)
+
+
 def encode_preview_jpeg(frame, jpeg_quality=PREVIEW_JPEG_QUALITY):
     """Encode one preview frame for the browser stream."""
     import cv2

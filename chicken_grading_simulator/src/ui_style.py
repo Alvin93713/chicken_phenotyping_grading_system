@@ -628,7 +628,8 @@ section[data-testid="stSidebar"] > div[data-testid="stSidebarContent"] {
 .sidebar-brand, .sidebar-foot { border-color: #e2d9c7; }
 .sidebar-brand-name { color: #1f1b16; }
 .sidebar-brand-sub, .sidebar-foot { color: #6b6358; }
-.sidebar-brand .app-logo { box-shadow: 0 6px 16px rgba(47, 111, 228, 0.25); }
+.sidebar-brand .app-logo { background: #2f6fe4; padding: 4px; box-sizing: border-box;
+    box-shadow: 0 6px 16px rgba(47, 111, 228, 0.25); }  /* white chicken needs a dark tile on cream */
 .st-key-main_page_navigation_segmented [role="radiogroup"] button { color: #5a5248; }
 .st-key-main_page_navigation_segmented [role="radiogroup"] button:hover {
     color: #1f1b16; background: rgba(47, 111, 228, 0.07); border-color: rgba(47, 111, 228, 0.20) !important;

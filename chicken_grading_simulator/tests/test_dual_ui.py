@@ -23,7 +23,7 @@ import dual_camera_ui
 class DualUITests(unittest.TestCase):
     def test_pages_and_independent_calibration(self):
         frame = np.zeros((480,640,3), dtype=np.uint8)
-        with tempfile.TemporaryDirectory() as folder, patch.object(database, "DB_PATH", Path(folder)/"test.db"), patch.object(dual_camera_ui, "ensure_preview_server", return_value=8765), patch.object(dual_camera_ui, "capture_pair", return_value={r:frame for r in ("comb","shank")}), patch("dual_camera.BASE_DIR", Path(folder)):
+        with tempfile.TemporaryDirectory() as folder, patch.object(database, "DB_PATH", Path(folder)/"test.db"), patch.object(dual_camera_ui, "ensure_preview_server", return_value=8765), patch.object(dual_camera_ui, "capture_pair", return_value={r:frame for r in ("comb","shank")}), patch.object(dual_camera_ui, "capture_one", return_value=frame), patch("dual_camera.BASE_DIR", Path(folder)):
             at = AppTest.from_file(str(ROOT / "src" / "app.py"), default_timeout=20).run()
             self.assertEqual(len(at.exception), 0)
             for page in ["相機調整", "比例尺校正", "掃描 QR code 與表型輸入"]:
@@ -33,13 +33,22 @@ class DualUITests(unittest.TestCase):
                 self.assertIn("Comb 雞冠 camera ID", labels)
                 self.assertIn("Shank 腳脛 camera ID", labels)
             at.segmented_control(key="main_page_navigation_segmented").set_value("比例尺校正").run()
-            next(b for b in at.button if b.label == "拍攝雙相機校正照片").click().run()
+            # each camera is calibrated on its own: comb first ...
+            at.button(key="calibration_capture_comb").click().run()
             self.assertEqual(len(at.exception), 0, str(at.exception))
+            self.assertNotIn("dual_calibration_photo_shank", at.session_state)  # shank untouched
             at.session_state["dual_comb_points"] = [(0,0),(100,0)]
+            at.run()
+            at.button(key="calibration_confirm_comb").click().run()
+            self.assertEqual(len(at.exception), 0, str(at.exception))
+            self.assertAlmostEqual(at.session_state["dual_calibrations"]["comb"]["cm_per_pixel"], 0.2)
+            self.assertNotIn("shank", at.session_state["dual_calibrations"])
+            # ... then shank, which keeps comb's calibration
+            at.button(key="calibration_capture_shank").click().run()
             at.session_state["dual_shank_points"] = [(0,0),(200,0)]
             at.run()
-            next(b for b in at.button if b.label == "確定雙相機校正").click().run()
-            self.assertEqual(len(at.exception), 0)
+            at.button(key="calibration_confirm_shank").click().run()
+            self.assertEqual(len(at.exception), 0, str(at.exception))
             calibration = at.session_state["dual_calibrations"]
             self.assertAlmostEqual(calibration["comb"]["cm_per_pixel"], 0.2)
             self.assertAlmostEqual(calibration["shank"]["cm_per_pixel"], 0.1)

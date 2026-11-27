@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 from dual_camera import (
-    MODEL_PATHS, ROLES, capture_pair, ensure_preview_server, save_pair,
+    MODEL_PATHS, ROLES, capture_one, capture_pair, ensure_preview_server, save_one, save_pair,
     validate_calibration,
 )
 from inference_queue import enqueue_snapshot_job, list_jobs, STATUS_COMPLETED, STATUS_FAILED
@@ -272,23 +272,25 @@ def previews(indices, inference=False, confidence=DEFAULT_CONFIDENCE):
     except RuntimeError as exc:
         st.error(str(exc))
         return
-    host = _preview_host()
     for role, col in zip(ROLES, st.columns(2)):
         with col:
             st.markdown(f"**{_label(role)}**")
-            if inference:
-                source = (
-                    f"http://{host}:{port}/inference/{role}/{indices[role]}.mjpg"
-                    f"?confidence={float(confidence):.3f}"
-                )
-            else:
-                source = f"http://{host}:{port}/camera/{indices[role]}.mjpg"
-            with st.container(key=f"dual_preview_{role}"):
-                st.markdown(
-                    f'<img src="{source}" alt="{_label(role)} camera preview" '
-                    'style="display:block;width:100%;height:auto;" />',
-                    unsafe_allow_html=True,
-                )
+            _preview_image(role, indices[role], port, inference, confidence)
+
+
+def _preview_image(role, index, port, inference=False, confidence=DEFAULT_CONFIDENCE):
+    """One camera's live MJPEG preview (plain or with YOLO inference drawn on it)."""
+    host = _preview_host()
+    if inference:
+        source = f"http://{host}:{port}/inference/{role}/{index}.mjpg?confidence={float(confidence):.3f}"
+    else:
+        source = f"http://{host}:{port}/camera/{index}.mjpg"
+    with st.container(key=f"dual_preview_{role}"):
+        st.markdown(
+            f'<img src="{source}" alt="{_label(role)} camera preview" '
+            'style="display:block;width:100%;height:auto;" />',
+            unsafe_allow_html=True,
+        )
 
 
 def adjustment_page(heading):
@@ -329,63 +331,96 @@ def point_picker(role, photo):
         st.rerun()
 
 
+def _calibration_ready(role):
+    return bool(st.session_state.get(f"dual_calibration_photo_{role}")) and         len(st.session_state.get(f"dual_{role}_points", [])) == 2
+
+
+def _capture_label(role):
+    return t("拍攝 {label} 校正照片", label=_label(role))
+
+
+def _confirm_label(role):
+    return t("確定 {label} 校正", label=_label(role))
+
+
+def _confirm_calibration(role, index, length):
+    """Calibrate ONE camera: its two points + ruler length -> cm/pixel. The other camera's calibration is kept."""
+    photo = st.session_state[f"dual_calibration_photo_{role}"]
+    if index != st.session_state.get(f"dual_calibration_camera_{role}"):
+        raise ValueError(t("拍攝後已更改相機，請重新拍攝校正照片"))
+    points = st.session_state[f"dual_{role}_points"]
+    (x1, y1), (x2, y2) = points
+    distance = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+    if distance <= 0:
+        raise ValueError(t("{role} 兩個校正點不可重疊", role=role))
+    with Image.open(photo) as image:
+        shape = [image.height, image.width]
+    calibration = dict(camera=index, shape=shape, cm_per_pixel=length / distance)
+    restore_camera_settings()
+    calibrations = dict(st.session_state.get("dual_calibrations") or {})
+    calibrations[role] = calibration
+    st.session_state.dual_calibrations = calibrations
+    _save_camera_settings(calibrations=calibrations)
+    return record_calibration({role: calibration}, {role: points}, {role: length}, {role: photo})
+
+
 def calibration_page(heading, hotkey):
-    heading(t("雙相機比例尺校正"), t("分別設定雞冠與腳脛相機的比例尺。"))
-    indices = camera_settings("calibration")
-    lengths = {}
-    for role, col in zip(ROLES, st.columns(2)):
-        lengths[role] = col.number_input(t("{label} 比例尺長度 (cm)", label=_label(role)),
-            min_value=0.001, value=20.0, key=f"dual_{role}_real_length")
-    photos = st.session_state.get("dual_calibration_photos")
-    ready = photos and all(len(st.session_state.get(f"dual_{r}_points", [])) == 2 for r in ROLES)
-    hotkey(t("確定雙相機校正") if ready else t("拍攝雙相機校正照片"))
-    a, b = st.columns(2)
-    if a.button(t("拍攝雙相機校正照片"), width="stretch"):
-        try:
-            frames = capture_pair(indices)
-            st.session_state.dual_calibration_photos = save_pair(frames, "calibration_captures")
-            st.session_state.dual_calibration_indices = dict(indices)
-            for role in ROLES:
-                st.session_state[f"dual_{role}_points"] = []
-                st.session_state.pop(f"dual_{role}_last_click", None)
-            st.rerun()
-        except Exception as exc:
-            st.error(str(exc))
-    if b.button(t("確定雙相機校正"), disabled=not ready, type="primary", width="stretch"):
-        try:
-            if indices != st.session_state.dual_calibration_indices:
-                raise ValueError(t("拍攝後已更改相機，請重新拍攝校正照片"))
-            calibrations = {}
-            for role in ROLES:
-                (x1,y1),(x2,y2) = st.session_state[f"dual_{role}_points"]
-                distance = ((x2-x1)**2+(y2-y1)**2)**0.5
-                if distance <= 0:
-                    raise ValueError(t("{role} 兩個校正點不可重疊", role=role))
-                with Image.open(photos[role]) as image:
-                    shape = [image.height, image.width]
-                calibrations[role] = dict(camera=indices[role], shape=shape,
-                                           cm_per_pixel=lengths[role]/distance)
-            st.session_state.dual_calibrations = calibrations
-            _save_camera_settings(calibrations=calibrations, cameras=dict(indices))
-            entry = record_calibration(calibrations, {r: st.session_state[f"dual_{r}_points"] for r in ROLES},
-                                       lengths, photos)
-            st.success(t("雙相機校正已套用"))
-            for role, value in entry["roles"].items():
-                change = value["change_ratio"]
-                if change is not None and abs(change) > CALIBRATION_CHANGE_WARN:
-                    st.warning(t("{label} 的 cm/pixel 與上次校正相差 {change}，請確認相機是否被移動或量尺點選是否正確",
-                                 label=_label(role), change=f"{change * 100:+.2f}%"))
-        except Exception as exc:
-            st.error(str(exc))
-    if photos:
-        for role, col in zip(ROLES, st.columns(2)):
-            with col:
-                st.markdown(f"**{_label(role)}**")
-                point_picker(role, photos[role])
-    else:
-        previews(indices)
-    calibration_status(indices)
+    heading(t("雙相機比例尺校正"), t("雞冠與腳脛相機可以分別校正，各自拍照、點兩點、確定即可。"))
+    # One card per camera; its camera ID sits inside it.
+    cards = [col.container(border=True, key=f"card_calibration_{role}")
+             for role, col in zip(ROLES, st.columns(2, gap="medium"))]
+    for role, card in zip(ROLES, cards):
+        card.subheader(_label(role))
+    indices = camera_settings("calibration", columns=cards)
+    # N hotkey: confirm a camera whose two points are picked, else take the next camera's photo.
+    ready = [role for role in ROLES if _calibration_ready(role)]
+    waiting = [role for role in ROLES if not st.session_state.get(f"dual_calibration_photo_{role}")]
+    hotkey(_confirm_label(ready[0]) if ready else _capture_label((waiting or list(ROLES))[0]))
+    try:
+        port = ensure_preview_server()
+    except RuntimeError as exc:
+        port = None
+        st.error(str(exc))
+    for role, card in zip(ROLES, cards):
+        with card:
+            length = st.number_input(t("{label} 比例尺長度 (cm)", label=_label(role)),
+                                     min_value=0.001, value=20.0, key=f"dual_{role}_real_length")
+            capture_col, confirm_col = st.columns(2)
+            if capture_col.button(_capture_label(role), width="stretch", key=f"calibration_capture_{role}"):
+                try:
+                    frame = capture_one(indices[role])
+                    st.session_state[f"dual_calibration_photo_{role}"] = save_one(frame, role)
+                    st.session_state[f"dual_calibration_camera_{role}"] = indices[role]
+                    st.session_state[f"dual_{role}_points"] = []
+                    st.session_state.pop(f"dual_{role}_last_click", None)
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+            if confirm_col.button(_confirm_label(role), disabled=not _calibration_ready(role), type="primary",
+                                  width="stretch", key=f"calibration_confirm_{role}"):
+                try:
+                    entry = _confirm_calibration(role, indices[role], length)
+                    st.success(t("{label} 校正已套用", label=_label(role)))
+                    change = entry["roles"][role]["change_ratio"]
+                    if change is not None and abs(change) > CALIBRATION_CHANGE_WARN:
+                        st.warning(t("{label} 的 cm/pixel 與上次校正相差 {change}，請確認相機是否被移動或量尺點選是否正確",
+                                     label=_label(role), change=f"{change * 100:+.2f}%"))
+                except Exception as exc:
+                    st.error(str(exc))
+            photo = st.session_state.get(f"dual_calibration_photo_{role}")
+            if photo:
+                point_picker(role, photo)
+            elif port:
+                _preview_image(role, indices[role], port)
+            _calibration_metric(role, indices[role])
     calibration_history_table()
+
+
+def _calibration_metric(role, index):
+    restore_camera_settings()
+    value = (st.session_state.get("dual_calibrations") or {}).get(role)
+    valid = value and value["camera"] == index
+    st.metric(t("{label} cm/pixel", label=_label(role)), f'{value["cm_per_pixel"]:.6f}' if valid else t("未校正"))
 
 
 def calibration_status(indices, columns=None):

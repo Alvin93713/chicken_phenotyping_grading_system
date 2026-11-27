@@ -56,20 +56,23 @@ from i18n import t
 FINAL_LIGHT_SECONDS = 3.0
 
 
-APP_ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "chicken_icon.svg"
+APP_ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "chicken_icon.png"
 
 
-def app_icon_svg() -> str:
-    """The app icon (blue tile + chicken) inline, for the sidebar logo."""
+def app_icon_html() -> str:
+    """The app icon (chicken on a white rounded tile) inline, for the sidebar logo."""
+    import base64
+
     try:
-        return APP_ICON_PATH.read_text(encoding="utf-8").replace("\n", "")
+        data = base64.b64encode(APP_ICON_PATH.read_bytes()).decode("ascii")
     except OSError:
         return "🐔"
+    return f'<img src="data:image/png;base64,{data}" alt="" />'
 
 
 st.set_page_config(
     page_title=t("雞隻表型資料分級與亮燈篩選系統"),
-    page_icon=str(APP_ICON_PATH),  # 側身小土雞 (assets/chicken_icon.svg)
+    page_icon=str(APP_ICON_PATH),  # chicken icon (assets/chicken_icon.png)
     layout="wide",
     initial_sidebar_state="expanded",  # the sidebar is the navigation: always open
 )
@@ -560,10 +563,11 @@ section[data-testid="stSidebar"] > div[data-testid="stSidebarContent"] {
     margin-bottom: 6px;
     border-bottom: 1px solid #1d2838;
 }
-.sidebar-brand .app-logo { width: 44px; height: 44px; border-radius: 11px; font-size: 1.4rem; overflow: hidden;
-    background: none; box-shadow: 0 0 18px rgba(79, 140, 255, 0.55); }
-.sidebar-brand .app-logo svg { width: 100%; height: 100%; display: block; }
-.sidebar-brand-name { font-size: 18px; font-weight: 900; letter-spacing: 0.02em; color: #e7ecf3; line-height: 1.25; }
+.sidebar-brand .app-logo { width: 48px; height: 48px; border-radius: 11px; font-size: 1.4rem; overflow: hidden;
+    background: none; box-shadow: none; }  /* white line-art chicken straight on the dark panel */
+.sidebar-brand .app-logo img { width: 100%; height: 100%; display: block; }
+.sidebar-brand-name { font-size: 18px; font-weight: 900; letter-spacing: 0.02em; color: #e7ecf3; line-height: 1.25;
+    margin-bottom: 6px; }  /* a little air above 表型分級系統 */
 .sidebar-brand-sub { font-size: 13px; font-weight: 700; color: #7c8ba3; line-height: 1.3; }
 .sidebar-foot {
     margin-top: 10px;
@@ -688,6 +692,20 @@ section[data-testid="stSidebar"] > div[data-testid="stSidebarContent"] {
 }
 .st-key-card_model_import [data-baseweb="input"] > div,
 .st-key-card_model_import [data-baseweb="input"] input { background: transparent !important; }
+
+/* 硬體連接設定: three cards of equal height, titles bigger and centred */
+.st-key-hw_row [data-testid="stHorizontalBlock"] { align-items: stretch; }
+.st-key-hw_row [data-testid="stColumn"] > [data-testid="stVerticalBlock"] { height: 100%; }
+.st-key-hw_row [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > div:has(> [class*="st-key-card_hardware"]),
+.st-key-hw_row [class*="st-key-card_hardware"] { flex: 1 1 auto; }
+[class*="st-key-card_hardware"] [data-testid="stHeading"] h3 {
+    text-align: center;
+    font-size: 1.75rem !important;  /* the global h3 rule is !important too */
+    font-weight: 800 !important;
+    padding-bottom: 0.4rem;
+}
+/* the heading's hover link icon would push the centred title to the left */
+[class*="st-key-card_hardware"] [data-testid="stHeaderActionElements"] { display: none; }
 
 /* other segmented controls (review filters etc.) */
 [data-testid="stButtonGroup"] button p {
@@ -1379,7 +1397,7 @@ def hardware_settings_page() -> None:
         "掃碼器、Arduino 燈號與 RS485/USB 秤重設備可在同一畫面完成設定與測試。",
     )
 
-    scanner_col, light_col, scale_col = st.columns(3, vertical_alignment="top")
+    scanner_col, light_col, scale_col = st.container(key="hw_row").columns(3, gap="medium")  # equal-height cards
     # Enumerate serial ports once per render; both selectboxes use the same list.
     ports = list_serial_ports()
     port_labels = [port.label for port in ports]
@@ -1991,7 +2009,7 @@ def main() -> None:
         st.markdown(
             f"""
             <div class="sidebar-brand">
-                <div class="app-logo">{app_icon_svg()}</div>
+                <div class="app-logo">{app_icon_html()}</div>
                 <div>
                     <div class="sidebar-brand-name">{t("紅羽土雞")}</div>
                     <div class="sidebar-brand-sub">{t("表型分級系統")}</div>

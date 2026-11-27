@@ -127,6 +127,13 @@ EN = {
     # weight flow (retry instead of silent manual fallback)
     "手動重量 (g)": "Manual weight (g)",
     "請輸入體重": "Enter weight",
+    # calibrate each camera on its own
+    "拍攝 {label} 校正照片": "Take {label} calibration photo",
+    "確定 {label} 校正": "Confirm {label} calibration",
+    "{label} 校正已套用": "{label} calibration applied",
+    "雞冠與腳脛相機可以分別校正，各自拍照、點兩點、確定即可。": "Calibrate the comb and shank cameras separately: take a photo, pick two points, confirm.",
+    "等待相機的新畫面": "waiting for a new camera frame",
+    "相機 {index} 拍攝失敗：{error}": "Camera {index} capture failed: {error}",
     # calibration history
     "校正歷史": "Calibration history",
     "尚無校正紀錄": "No calibrations recorded yet",
