@@ -19,6 +19,25 @@ import product_review  # noqa: E402
 
 
 class CameraSettingsTests(unittest.TestCase):
+    def test_every_calibration_is_appended_with_its_change(self):
+        with tempfile.TemporaryDirectory() as folder,              patch.dict(_os.environ, {"CHICKEN_CAMERA_SETTINGS_PATH": str(Path(folder) / "cams.json")}):
+            points = {"comb": [(0, 0), (100, 0)], "shank": [(0, 0), (0, 200)]}
+            photos = {"comb": "c.png", "shank": "s.png"}
+            first = {"comb": {"camera": 0, "shape": [480, 640], "cm_per_pixel": 0.2},
+                     "shank": {"camera": 1, "shape": [480, 640], "cm_per_pixel": 0.1}}
+            entry = dual_camera_ui.record_calibration(first, points, {"comb": 20.0, "shank": 20.0}, photos, now=0)
+            self.assertIsNone(entry["roles"]["comb"]["change_ratio"])  # nothing to compare with yet
+            self.assertEqual(entry["roles"]["shank"]["pixel_distance"], 200.0)
+            second = {"comb": {"camera": 0, "shape": [480, 640], "cm_per_pixel": 0.22},
+                      "shank": {"camera": 1, "shape": [480, 640], "cm_per_pixel": 0.1}}
+            entry = dual_camera_ui.record_calibration(second, points, {"comb": 22.0, "shank": 20.0}, photos)
+            self.assertAlmostEqual(entry["roles"]["comb"]["change_ratio"], 0.10)  # +10 % -> warned on the page
+            self.assertAlmostEqual(entry["roles"]["shank"]["change_ratio"], 0.0)
+            history = dual_camera_ui.load_calibration_history()
+            self.assertEqual(len(history), 2)  # appended, the first one is kept
+            self.assertEqual(history[0]["roles"]["comb"]["cm_per_pixel"], 0.2)
+            self.assertEqual(history[1]["roles"]["comb"]["ruler_cm"], 22.0)
+
     def test_camera_ids_follow_from_adjustment_to_calibration_and_survive_a_new_session(self):
         with tempfile.TemporaryDirectory() as folder, \
              patch.dict(_os.environ, {"CHICKEN_CAMERA_SETTINGS_PATH": str(Path(folder) / "cams.json")}), \

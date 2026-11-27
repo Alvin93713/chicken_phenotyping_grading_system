@@ -127,6 +127,15 @@ EN = {
     # weight flow (retry instead of silent manual fallback)
     "手動重量 (g)": "Manual weight (g)",
     "請輸入體重": "Enter weight",
+    # calibration history
+    "校正歷史": "Calibration history",
+    "尚無校正紀錄": "No calibrations recorded yet",
+    "校正時間": "Calibrated at",
+    "量尺長度 (cm)": "Ruler length (cm)",
+    "像素距離": "Pixel distance",
+    "相機": "Camera",
+    "與上次相比": "Change vs previous",
+    "{label} 的 cm/pixel 與上次校正相差 {change}，請確認相機是否被移動或量尺點選是否正確": "{label} cm/pixel changed {change} from the previous calibration; check whether the camera moved or the ruler points were picked correctly",
     "請輸入手動重量 (g)": "Enter the manual weight (g)",
     "使用手動重量": "Use manual weight",
     "拍攝中…": "Capturing…",

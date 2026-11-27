@@ -141,6 +141,88 @@ def _save_camera_settings(**changes) -> None:
     temporary.replace(path)
 
 
+# --- calibration history: one JSON line per confirmed calibration, never overwritten ---------------------
+CALIBRATION_CHANGE_WARN = 0.05  # warn when cm/pixel moves more than 5 % from the previous calibration
+
+
+def _calibration_history_path() -> Path:
+    return _camera_settings_path().with_name("calibration_history.jsonl")
+
+
+def load_calibration_history() -> list:
+    """All recorded calibrations, oldest first (a damaged line is skipped, the rest is kept)."""
+    try:
+        lines = _calibration_history_path().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    entries = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+    return entries
+
+
+def record_calibration(calibrations, points, lengths, photos, now=None) -> dict:
+    """Append this calibration to data/calibration_history.jsonl. Per role: camera, the two clicked points,
+    their pixel distance, the ruler length, cm/pixel and its change from the previous calibration of that
+    role (None the first time). Returns the entry."""
+    previous = {}
+    for old in load_calibration_history():
+        for role, value in (old.get("roles") or {}).items():
+            previous[role] = value
+    roles = {}
+    for role, value in calibrations.items():
+        (x1, y1), (x2, y2) = points[role]
+        before = (previous.get(role) or {}).get("cm_per_pixel")
+        cm_per_pixel = float(value["cm_per_pixel"])
+        roles[role] = {
+            "camera": value["camera"],
+            "image_size": list(value["shape"]),
+            "points": [[x1, y1], [x2, y2]],
+            "pixel_distance": round(((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5, 3),
+            "ruler_cm": float(lengths[role]),
+            "cm_per_pixel": cm_per_pixel,
+            "previous_cm_per_pixel": before,
+            "change_ratio": None if not before else round(cm_per_pixel / float(before) - 1, 6),
+            "photo": str(photos[role]),
+        }
+    entry = {"time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), "roles": roles}
+    path = _calibration_history_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return entry
+
+
+def calibration_history_table(limit=20) -> None:
+    """Newest first: one row per camera per calibration."""
+    rows = []
+    for entry in reversed(load_calibration_history()[-limit:]):
+        for role in ROLES:
+            value = (entry.get("roles") or {}).get(role)
+            if not value:
+                continue
+            change = value.get("change_ratio")
+            rows.append({
+                "校正時間": entry.get("time", ""),
+                "相機": _label(role),
+                "camera ID": value.get("camera"),
+                "量尺長度 (cm)": f'{float(value.get("ruler_cm") or 0):.2f}',
+                "像素距離": f'{float(value.get("pixel_distance") or 0):.2f}',
+                "cm/pixel": f'{float(value.get("cm_per_pixel") or 0):.6f}',
+                "與上次相比": "-" if change is None else f"{change * 100:+.2f}%",
+            })
+    st.subheader(t("校正歷史"))
+    if rows:
+        st.dataframe(pd.DataFrame(t_records(rows)), hide_index=True, width="stretch")
+    else:
+        st.caption(t("尚無校正紀錄"))
+
+
 def restore_camera_settings() -> None:
     """Once per browser session: take the saved camera IDs and calibrations, so a refresh, a new tab or a
     restart keeps what was set on 相機調整 / 比例尺校正 (no need to choose the IDs again)."""
@@ -285,7 +367,14 @@ def calibration_page(heading, hotkey):
                                            cm_per_pixel=lengths[role]/distance)
             st.session_state.dual_calibrations = calibrations
             _save_camera_settings(calibrations=calibrations, cameras=dict(indices))
+            entry = record_calibration(calibrations, {r: st.session_state[f"dual_{r}_points"] for r in ROLES},
+                                       lengths, photos)
             st.success(t("雙相機校正已套用"))
+            for role, value in entry["roles"].items():
+                change = value["change_ratio"]
+                if change is not None and abs(change) > CALIBRATION_CHANGE_WARN:
+                    st.warning(t("{label} 的 cm/pixel 與上次校正相差 {change}，請確認相機是否被移動或量尺點選是否正確",
+                                 label=_label(role), change=f"{change * 100:+.2f}%"))
         except Exception as exc:
             st.error(str(exc))
     if photos:
@@ -296,6 +385,7 @@ def calibration_page(heading, hotkey):
     else:
         previews(indices)
     calibration_status(indices)
+    calibration_history_table()
 
 
 def calibration_status(indices, columns=None):
