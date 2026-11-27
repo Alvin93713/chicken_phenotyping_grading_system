@@ -238,6 +238,12 @@ class ProductReviewTests(unittest.TestCase):
                 self.assertEqual(len(app.exception), 0, str(app.exception))
             # demo buttons are hidden in the product …
             self.assertFalse(any(button.label == "載入五筆真實測試案例" for button in app.button))
+            # The demo photos live in data/product_review/demo_assets (not in git), so a fresh clone (e.g. the
+            # Orin) has only the page checks above; the demo-seeding part runs where the photos exist.
+            if not (product_review.DEMO_ASSET_DIR / "DEMO-REAL-01_comb_source.jpg").is_file():
+                del app
+                gc.collect()
+                self.skipTest("demo photos not present (data/product_review/demo_assets is not in git)")
             with patch.object(ui_style, "SHOW_DEMO_TOOLS", True):  # … and shown with CHICKEN_SHOW_DEMO_TOOLS=1
                 app.run()
             with patch.object(ui_style, "SHOW_DEMO_TOOLS", True):
