@@ -447,6 +447,21 @@ RING_DRIVER_JS = r"""
 """
 
 
+# Clicking an inference photo opens it full screen (same as its small 「Fullscreen」 button); clicking it there,
+# or that button, closes it again. Installed once per page.
+IMAGE_ZOOM_HTML = """<script>(() => {
+  if (window.__chickenImageZoom) return;
+  window.__chickenImageZoom = true;
+  document.addEventListener('click', (event) => {
+    const image = event.target.closest && event.target.closest('.st-key-snapshot_result_images [data-testid="stImage"] img');
+    if (!image) return;
+    const frame = image.closest('[data-testid="stElementContainer"]');
+    const button = frame && frame.querySelector('button[data-testid="stBaseButton-elementToolbar"]');
+    if (button) { event.preventDefault(); button.click(); }
+  }, true);
+})();</script>"""
+
+
 def ring_driver_html() -> str:
     """Zero-height component that installs RING_DRIVER_JS into the app page once (runs in the page itself,
     so it keeps running when Streamlit re-renders or removes this helper)."""
@@ -491,6 +506,15 @@ def _delay_rules() -> str:
 
 
 MOTION_CSS = """
+/* sidebar tabs: the current one springs out (static style: same highlight, no animation) */
+.st-key-main_page_navigation_segmented [role="radiogroup"] button {
+    transition: transform .28s cubic-bezier(.34,1.56,.64,1), background .25s ease, color .2s ease,
+        box-shadow .3s ease, border-color .25s ease;
+}
+.st-key-main_page_navigation_segmented [role="radiogroup"] button::before { transition: filter .3s ease; }
+@media (prefers-reduced-motion: reduce) {
+    .st-key-main_page_navigation_segmented [role="radiogroup"] button { transition: none; }
+}
 :root {
     --mo-card: #121a26; --mo-band: #0e141e; --mo-border: #222d3f; --mo-num: #ffffff;
     --mo-label: #c5cfdc; --mo-muted: #93a1b5; --mo-track: #1c2636;
@@ -577,7 +601,6 @@ CREAM_CSS = """
 }
 [data-testid="stAppViewContainer"] { background: #f6f1e7; }
 .app-logo { background: #2f6fe4; box-shadow: 0 6px 16px rgba(47, 111, 228, 0.25); }
-.st-key-main_page_navigation_segmented [role="radiogroup"] button[aria-checked="true"],
 [data-testid="stButton"] > button[kind="primary"],
 [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"] {
     background: linear-gradient(180deg, #3b7bec, #2a63d4); border-color: #2f6fe4;
@@ -594,4 +617,31 @@ div[class*="st-key-card_"], [data-testid="stMetric"], .threshold-summary-card, .
 .st-key-standby_threshold_block h3 { color: #a16207; }
 .st-key-pass_threshold_block { border-color: rgba(22, 163, 74, 0.6) !important; }
 .st-key-standby_threshold_block { border-color: rgba(202, 138, 4, 0.6) !important; }
+.st-key-card_model_import [data-baseweb="input"], .st-key-card_model_import [data-testid="stTextInputRootElement"],
+.st-key-card_model_import [data-testid="stFileUploaderDropzone"] { background: #fffdf8 !important; border-color: #e2d9c7 !important; }
+/* sidebar in cream */
+section[data-testid="stSidebar"] > div[data-testid="stSidebarContent"] {
+    background: linear-gradient(180deg, #fffdf8 0%, #f9f5ec 100%);
+    border-color: #e2d9c7;
+    box-shadow: 0 1px 2px rgba(60, 45, 20, 0.05), 0 14px 34px -14px rgba(60, 45, 20, 0.22);
+}
+.sidebar-brand, .sidebar-foot { border-color: #e2d9c7; }
+.sidebar-brand-name { color: #1f1b16; }
+.sidebar-brand-sub, .sidebar-foot { color: #6b6358; }
+.sidebar-brand .app-logo { box-shadow: 0 6px 16px rgba(47, 111, 228, 0.25); }
+.st-key-main_page_navigation_segmented [role="radiogroup"] button { color: #5a5248; }
+.st-key-main_page_navigation_segmented [role="radiogroup"] button:hover {
+    color: #1f1b16; background: rgba(47, 111, 228, 0.07); border-color: rgba(47, 111, 228, 0.20) !important;
+}
+.st-key-main_page_navigation_segmented [role="radiogroup"] button[aria-checked="true"] {
+    color: #1d4fb8;
+    background: linear-gradient(100deg, rgba(47, 111, 228, 0.18) 0%, rgba(47, 111, 228, 0.07) 60%, rgba(47, 111, 228, 0.03) 100%);
+    border-color: rgba(47, 111, 228, 0.55) !important;
+    box-shadow: 0 10px 24px -8px rgba(47, 111, 228, 0.40), 0 0 0 1px rgba(47, 111, 228, 0.12);
+}
+.st-key-main_page_navigation_segmented [role="radiogroup"] button[aria-checked="true"] p { color: #1d4fb8; }
+.st-key-main_page_navigation_segmented [role="radiogroup"] button[aria-checked="true"]::after {
+    background: #2f6fe4; box-shadow: 0 0 8px rgba(47, 111, 228, 0.6);
+}
+.st-key-main_page_navigation_segmented [role="radiogroup"] button[aria-checked="true"]::before { filter: none; }
 """

@@ -1,4 +1,4 @@
-﻿"""雞隻表型資料分級與亮燈篩選系統。"""
+"""雞隻表型資料分級與亮燈篩選系統。"""
 
 from __future__ import annotations
 
@@ -56,10 +56,22 @@ from i18n import t
 FINAL_LIGHT_SECONDS = 3.0
 
 
+APP_ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "chicken_icon.svg"
+
+
+def app_icon_svg() -> str:
+    """The app icon (blue tile + chicken) inline, for the sidebar logo."""
+    try:
+        return APP_ICON_PATH.read_text(encoding="utf-8").replace("\n", "")
+    except OSError:
+        return "🐔"
+
+
 st.set_page_config(
     page_title=t("雞隻表型資料分級與亮燈篩選系統"),
-    page_icon="🐔",
+    page_icon=str(APP_ICON_PATH),  # 側身小土雞 (assets/chicken_icon.svg)
     layout="wide",
+    initial_sidebar_state="expanded",  # the sidebar is the navigation: always open
 )
 
 init_db()
@@ -448,7 +460,7 @@ header[data-testid="stHeader"] {
     background: transparent;
 }
 [data-testid="stMainBlockContainer"] {
-    width: min(97vw, var(--content-width));
+    width: 100%;  /* of the area right of the sidebar */
     max-width: var(--content-width);
     padding: 0.55rem 1.4rem 1.2rem;
 }
@@ -490,52 +502,192 @@ header[data-testid="stHeader"] {
     border-left: 1px solid var(--line-strong);
 }
 
-/* ---------- main navigation (segmented control) ---------- */
-.st-key-main_page_navigation_segmented {
-    width: 100% !important;
+/* ---------- left sidebar navigation (Neon sidebar) ----------
+   The page switch is still the same segmented control (key main_page_navigation_segmented), only moved into
+   st.sidebar and laid out as a vertical list. Icons per tab come from nav_icon_css(); the springy pop-out
+   transition is added by the 動態 style (ui_style.MOTION_CSS). */
+/* the sidebar can't be collapsed or resized (no collapse / expand buttons, no drag handle) */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stExpandSidebarButton"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stSidebarResizeHandle"] {
+    display: none !important;
 }
+/* On a narrow window Streamlit marks the sidebar collapsed and would lay it over the page: keep it shown,
+   fixed at the left, and move the page to its right instead. */
+section[data-testid="stSidebar"][aria-expanded="false"] {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    height: 100vh !important;
+    transform: none !important;
+    margin-left: 0 !important;
+    z-index: 100;
+}
+[data-testid="stAppViewContainer"]:has(> section[data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stMain"] {
+    margin-left: 330px;
+    width: calc(100vw - 330px);
+    max-width: calc(100vw - 330px);
+    flex: 0 0 auto;
+}
+section[data-testid="stSidebar"] {
+    visibility: visible !important;
+    width: 330px !important;
+    min-width: 330px !important;
+    max-width: 330px !important;
+    background: transparent !important;
+    border-right: none !important;
+}
+section[data-testid="stSidebar"] > div[data-testid="stSidebarContent"] {
+    margin: 14px 0 14px 14px;
+    width: calc(100% - 14px);
+    box-sizing: border-box;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    height: calc(100% - 28px);
+    border-radius: 24px;
+    background: linear-gradient(180deg, #111927 0%, #0d141f 100%);
+    border: 1px solid #1d2838;
+    box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+[data-testid="stSidebarHeader"] { height: 2.4rem; padding: 0.6rem 0.9rem 0; }
+[data-testid="stSidebarUserContent"] { padding: 0 12px 18px 12px; }
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 4px 14px 4px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid #1d2838;
+}
+.sidebar-brand .app-logo { width: 44px; height: 44px; border-radius: 11px; font-size: 1.4rem; overflow: hidden;
+    background: none; box-shadow: 0 0 18px rgba(79, 140, 255, 0.55); }
+.sidebar-brand .app-logo svg { width: 100%; height: 100%; display: block; }
+.sidebar-brand-name { font-size: 18px; font-weight: 900; letter-spacing: 0.02em; color: #e7ecf3; line-height: 1.25; }
+.sidebar-brand-sub { font-size: 13px; font-weight: 700; color: #7c8ba3; line-height: 1.3; }
+.sidebar-foot {
+    margin-top: 10px;
+    padding: 14px 6px 2px;
+    border-top: 1px solid #1d2838;
+    font-size: 13px;
+    font-weight: 700;
+    color: #7c8ba3;
+}
+.st-key-main_page_navigation_segmented,
 .st-key-main_page_navigation_segmented [data-testid="stButtonGroup"],
-.st-key-main_page_navigation_segmented [role="radiogroup"] {
-    width: 100%;
+.st-key-main_page_navigation_segmented [data-testid="stButtonGroup"] > div {
+    width: 100% !important;
 }
 .st-key-main_page_navigation_segmented [role="radiogroup"] {
     display: flex;
-    max-width: none !important;
+    flex-direction: column;
     flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 4px;
-    padding: 4px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 12px;
+    width: 100%;
+    max-width: none !important;
+    gap: 8px;
+    padding: 4px 12px 4px 14px;
+    background: transparent;
+    border: none;
+    overflow: visible;
 }
 .st-key-main_page_navigation_segmented [role="radiogroup"] button {
-    flex: 1 1 auto;
-    min-height: 2.55rem;
-    padding: 0.3rem 0.7rem;
+    position: relative;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 56px;
+    margin: 0 !important;
+    padding: 0 16px 0 18px;
     border: 1px solid transparent !important;
-    border-radius: 9px !important;
+    border-radius: 14px !important;
     background: transparent;
-    color: var(--muted);
+    color: #9fb0c8;
     white-space: nowrap;
-    transition: background 120ms ease, color 120ms ease;
+    text-align: left;
+    overflow: visible !important;  /* the glowing bar sits just left of the active tab */
+}
+.st-key-main_page_navigation_segmented [role="radiogroup"] button > div {
+    justify-content: flex-start;
 }
 .st-key-main_page_navigation_segmented [role="radiogroup"] button p {
-    font-size: 0.98rem;
-    font-weight: 650;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: inherit;
+}
+.st-key-main_page_navigation_segmented [role="radiogroup"] button::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    background-color: currentColor;
+    -webkit-mask: var(--nav-icon) center / contain no-repeat;
+    mask: var(--nav-icon) center / contain no-repeat;
 }
 .st-key-main_page_navigation_segmented [role="radiogroup"] button:hover {
-    background: var(--surface-hover);
-    color: var(--text-strong);
+    color: #e7ecf3;
+    background: rgba(79, 140, 255, 0.08);
+    border-color: rgba(79, 140, 255, 0.18) !important;
 }
+.st-key-main_page_navigation_segmented [role="radiogroup"] button:focus-visible {
+    outline: 2px solid #7aa7ff;
+    outline-offset: 2px;
+}
+/* the page you are on: bigger, popped out to the right, neon blue */
 .st-key-main_page_navigation_segmented [role="radiogroup"] button[aria-checked="true"] {
-    background: linear-gradient(180deg, #5b95ff, #3f7cf0);
     color: #ffffff;
-    box-shadow: 0 4px 14px rgba(79, 140, 255, 0.35);
+    transform: scale(1.045) translateX(6px);
+    background: linear-gradient(100deg, rgba(79, 140, 255, 0.30) 0%, rgba(79, 140, 255, 0.10) 55%, rgba(79, 140, 255, 0.04) 100%);
+    border-color: rgba(122, 167, 255, 0.65) !important;
+    box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.25), 0 10px 28px -6px rgba(79, 140, 255, 0.55),
+        0 0 26px rgba(79, 140, 255, 0.28), inset 0 0 18px rgba(79, 140, 255, 0.18);
+}
+.st-key-main_page_navigation_segmented [role="radiogroup"] button[aria-checked="true"]::after {
+    content: "";
+    position: absolute;
+    left: -12px;
+    top: 12px;
+    bottom: 12px;
+    width: 4px;
+    border-radius: 4px;
+    background: #7aa7ff;
+    box-shadow: 0 0 10px #4f8cff, 0 0 22px #4f8cff;
+}
+.st-key-main_page_navigation_segmented [role="radiogroup"] button[aria-checked="true"]::before {
+    filter: drop-shadow(0 0 6px rgba(122, 167, 255, 0.9));
 }
 .st-key-main_page_navigation_segmented [role="radiogroup"] button[aria-checked="true"] p {
     color: #ffffff;
 }
+
+/* 模型維護與更新: the two cards in a row are the same height (stretched to the taller one) */
+.st-key-maint_row_sync [data-testid="stHorizontalBlock"],
+.st-key-maint_row_models [data-testid="stHorizontalBlock"] {
+    align-items: stretch;
+}
+.st-key-maint_row_sync [data-testid="stColumn"] > [data-testid="stVerticalBlock"],
+.st-key-maint_row_models [data-testid="stColumn"] > [data-testid="stVerticalBlock"] {
+    height: 100%;
+}
+.st-key-maint_row_sync [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > div:has(> [class*="st-key-card_"]),
+.st-key-maint_row_models [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > div:has(> [class*="st-key-card_"]),
+.st-key-maint_row_sync .st-key-card_sync_upload, .st-key-maint_row_sync .st-key-card_manual_bundle,
+.st-key-maint_row_models .st-key-card_model_select, .st-key-maint_row_models .st-key-card_model_import {
+    flex: 1 1 auto;
+}
+.st-key-card_model_import [data-testid="stForm"] { padding: 0; background: transparent; border: none; }
+/* text / date fields would otherwise blend into the card */
+.st-key-card_model_import [data-baseweb="input"],
+.st-key-card_model_import [data-testid="stTextInputRootElement"],
+.st-key-card_model_import [data-testid="stFileUploaderDropzone"] {
+    background: #0f1622 !important;
+    border: 1px solid #263246 !important;
+    border-radius: 10px;
+}
+.st-key-card_model_import [data-baseweb="input"] > div,
+.st-key-card_model_import [data-baseweb="input"] input { background: transparent !important; }
 
 /* other segmented controls (review filters etc.) */
 [data-testid="stButtonGroup"] button p {
@@ -799,6 +951,7 @@ input[placeholder="C001"] {
 .st-key-adjust_previews .st-key-dual_preview_shank img { max-height: 45vh; }  /* 相機調整: 1.5× the usual 30vh */
 .st-key-snapshot_result_images img {
     max-height: 19.5vh;
+    cursor: zoom-in;  /* click = full screen (ui_style.IMAGE_ZOOM_HTML) */
     object-fit: contain;
     background: #000;
     border-radius: 10px;
@@ -1737,7 +1890,7 @@ def execute_final_light_decision(query_id: str) -> bool:
 
 def final_scan_page() -> None:
     page_heading(
-        "再次掃描與亮燈判定",
+        "最終種雞判斷",
         "再次掃描既有 QR code，立即顯示最終分級並控制綠燈、黃燈或紅燈。",
     )
 
@@ -1766,53 +1919,98 @@ def final_scan_page() -> None:
             render_light(chicken.get("grade_result"))
 
 
+# Sidebar tab names. The page keys (values of the navigation control, used by session state and tests) stay
+# as they were; only what the sidebar shows changed.
+NAV_LABELS = {
+    "掃描 QR code 與表型輸入": "表型數據辨識",
+    "再次掃描與亮燈判定": "最終種雞判斷",
+    "資料與模型維護": "模型維護與更新",
+}
+DEFAULT_PAGE = "雞隻資料管理"  # the page a new session opens on (the first tab)
+
+# Stroke icons (24×24) per page, drawn in the button's text colour through a CSS mask.
+NAV_ICONS = {
+    "硬體連接設定": '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
+    "雞隻資料管理": '<ellipse cx="12" cy="5.5" rx="7" ry="2.5"/><path d="M5 5.5v6c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-6'
+                  'M5 11.5v6c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-6"/>',
+    "分級門檻設定": '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/>'
+                  '<circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+    "相機調整": '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+    "比例尺校正": '<path d="M3 16 16 3l5 5L8 21zM7 12l2 2M10 9l2 2M13 6l2 2"/>',
+    "掃描 QR code 與表型輸入": '<path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M8 8h3v3H8zM13 13h3v3h-3zM13 8h3M8 13v3"/>',
+    "再次掃描與亮燈判定": '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+    "模型品質監控": '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+    "案例審核": '<path d="M9 4h6v3H9zM7 5H5v16h14V5h-2M8.5 14l2.5 2.5 4.5-5"/>',
+    "資料與模型維護": '<path d="M21 8 12 3 3 8l9 5zM3 8v8l9 5 9-5V8M12 13v8"/>',
+}
+
+
+def nav_icon_css(page_names) -> str:
+    """One icon per sidebar tab, by position (the tabs keep a fixed order)."""
+    from urllib.parse import quote
+
+    rules = []
+    for position, name in enumerate(page_names, start=1):
+        svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" '
+               'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + NAV_ICONS.get(name, "") + "</svg>")
+        rules.append(f'.st-key-main_page_navigation_segmented [role="radiogroup"] button:nth-of-type({position})'
+                     f'{{--nav-icon:url("data:image/svg+xml,{quote(svg)}")}}')
+    return "<style>" + "\n".join(rules) + "</style>"
+
+
 def main() -> None:
-    masthead_column, language_column, appearance_column = st.columns([7, 1.1, 1], vertical_alignment="center")
+    _, language_column, appearance_column = st.columns([7, 1.1, 1], vertical_alignment="center")
     with language_column:
         ui_style.language_switch()
-    masthead_column.markdown(
-        f"""
-        <div class="app-masthead">
-            <div class="app-logo">🐔</div>
-            <div class="app-title">{t("紅羽土雞表型分級系統")}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
     with appearance_column:
         ui_style.controls()
 
     from product_review_ui import model_maintenance_page, quality_dashboard_page, review_cases_page
 
     pages = {
-        "硬體連接設定": hardware_settings_page,
         "雞隻資料管理": data_management_page,
         "分級門檻設定": grading_page,
         "相機調整": camera_adjustment_page,
         "比例尺校正": scale_calibration_section,
         "掃描 QR code 與表型輸入": phenotype_entry_page,
         "再次掃描與亮燈判定": final_scan_page,
+        "硬體連接設定": hardware_settings_page,
         "模型品質監控": lambda: quality_dashboard_page(page_heading),
         "案例審核": lambda: review_cases_page(page_heading),
         "資料與模型維護": lambda: model_maintenance_page(page_heading),
     }
     page_names = list(pages.keys())
     if "main_page_navigation" not in st.session_state:
-        st.session_state.main_page_navigation = page_names[0]
-    # Option values stay Chinese; labels are resolved now (a dict lookup, so the formatter does not
+        st.session_state.main_page_navigation = DEFAULT_PAGE
+    # Option values stay the page keys; labels are resolved now (a dict lookup, so the formatter does not
     # depend on the language state when it is called later, e.g. by AppTest).
-    page_labels = {name: t(name) for name in page_names}
+    page_labels = {name: t(NAV_LABELS.get(name, name)) for name in page_names}
     # The P hotkey matches nav buttons by their visible text, so pass the displayed names.
     install_p_page_cycle_hotkey(list(page_labels.values()), page_labels.get(st.session_state.main_page_navigation, ""))
-    selected_page = st.segmented_control(
-        t("功能選擇"),
-        page_names,
-        format_func=page_labels.__getitem__,
-        selection_mode="single",
-        default=st.session_state.main_page_navigation,
-        label_visibility="collapsed",
-        key="main_page_navigation_segmented",
-    )
+    with st.sidebar:
+        st.markdown(
+            f"""
+            <div class="sidebar-brand">
+                <div class="app-logo">{app_icon_svg()}</div>
+                <div>
+                    <div class="sidebar-brand-name">{t("紅羽土雞")}</div>
+                    <div class="sidebar-brand-sub">{t("表型分級系統")}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(nav_icon_css(page_names), unsafe_allow_html=True)
+        selected_page = st.segmented_control(
+            t("功能選擇"),
+            page_names,
+            format_func=page_labels.__getitem__,
+            selection_mode="single",
+            default=st.session_state.main_page_navigation,
+            label_visibility="collapsed",
+            key="main_page_navigation_segmented",
+        )
+        st.markdown(f'<div class="sidebar-foot">{t("快捷鍵 P：切換到下一頁")}</div>', unsafe_allow_html=True)
     if selected_page is None:
         selected_page = st.session_state.main_page_navigation
     st.session_state.main_page_navigation = selected_page

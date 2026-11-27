@@ -18,6 +18,13 @@ EN = {
     "模型品質監控": "Model Quality",
     "案例審核": "Case Review",
     "資料與模型維護": "Data & Model Upkeep",
+    # sidebar navigation
+    "表型數據辨識": "Phenotype Recognition",
+    "最終種雞判斷": "Final Breeder Decision",
+    "模型維護與更新": "Model Upkeep & Updates",
+    "紅羽土雞": "Red-feather Chicken",
+    "表型分級系統": "Phenotype Grading",
+    "快捷鍵 P：切換到下一頁": "Shortcut P: next page",
 
     # ---- inference frames / background queue ----
     "目前沒有可顯示的推論影格。": "No inference frames to show yet.",

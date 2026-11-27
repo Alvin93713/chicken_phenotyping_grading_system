@@ -537,7 +537,7 @@ def phenotype_page(helpers):
     supplied_scales = {}
     # Left: photo-mode toggle, settings row (camera IDs · YOLO confidence), camera previews (or uploaded photos),
     # calibration status. Right, aligned with the toggle: the operator's scan → weigh → measure flow and the latest result.
-    stage_column, operator_column = st.columns([1.5, 1], gap="large")
+    stage_column, operator_column = st.columns([1.3, 1], gap="large")  # right block (ID + results) a bit wider
     submitted = bool(st.session_state.pop("_measure_requested", False))
     with operator_column, st.container(key="pheno_operator"):
         for role, path in MODEL_PATHS.items():
@@ -583,6 +583,7 @@ def phenotype_page(helpers):
                 if error:
                     st.error(error)  # next to the button (not at the page bottom)
         st.html(ui_style.ring_driver_html(), unsafe_allow_javascript=True)  # browser-side ring animation (installed once)
+        st.html(ui_style.IMAGE_ZOOM_HTML, unsafe_allow_javascript=True)  # click an inference photo -> full screen
         # The capture ring lives here, a slot that exists in EVERY run (the form above disappears once the ID
         # is cleared), so the next run clears it before the job's ring below is drawn: never two rings.
         capture_slot = st.empty()

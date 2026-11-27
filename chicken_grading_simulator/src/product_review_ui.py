@@ -525,8 +525,11 @@ def _sync_panel(exportable_total: int) -> None:
     _sync_settings_panel(config, configured)
 
 
+MAINT_COLUMNS = [1.45, 1]  # both two-card rows on 模型維護與更新 split the same way, so card edges line up
+
+
 def model_maintenance_page(page_heading) -> None:
-    page_heading(t("資料與模型維護"), t("把所有已審核影像回傳給廠商，由廠商重新標註並微調模型。"))
+    page_heading(t("模型維護與更新"), t("把所有已審核影像回傳給廠商，由廠商重新標註並微調模型。"))
     summary = review_summary()
     cases = list_cases()  # read once; both counts below reuse it
     exportable = export_counts(cases=cases)
@@ -536,7 +539,7 @@ def model_maintenance_page(page_heading) -> None:
     metric_columns[2].metric(t("可匯出錯誤影像"), exportable["不正確"])
     metric_columns[3].metric(t("待審核案例"), summary["待審核"])
 
-    sync_column, manual_column = st.columns([1.45, 1], gap="medium")
+    sync_column, manual_column = st.container(key="maint_row_sync").columns(MAINT_COLUMNS, gap="medium")
     with sync_column, st.container(border=True, key="card_sync_upload"):
         _sync_panel(sum(exportable.values()))
     with manual_column:
@@ -583,10 +586,11 @@ def _validate_model(path: Path, role: str) -> None:
 
 def _model_versions_panel() -> None:
     """Model version control: every imported model is kept as best_<role>_<雞舍>_<日期>.pt; pick the one in use."""
-    st.subheader(t("模型版本"))
     flash = st.session_state.pop("model_flash", None)
+    versions_card = st.container(border=True, key="card_model_versions")
+    versions_card.subheader(t("模型版本"))
     if flash:
-        getattr(st, flash[0])(flash[1])
+        getattr(versions_card, flash[0])(flash[1])
     rows = []
     for role in REVIEW_ROLES:
         in_use = model_registry.active_path(role)
@@ -601,14 +605,14 @@ def _model_versions_panel() -> None:
                 "狀態": t("使用中") if version.path == in_use else "",
             })
     if rows:
-        st.dataframe(pd.DataFrame(t_records(rows)), width="stretch", hide_index=True,
-                     height=min(36 * (len(rows) + 1) + 4, 300))
+        versions_card.dataframe(pd.DataFrame(t_records(rows)), width="stretch", hide_index=True,
+                                height=min(36 * (len(rows) + 1) + 4, 300))
     else:
-        st.warning(t("找不到任何模型檔"))
+        versions_card.warning(t("找不到任何模型檔"))
 
-    choose_column, import_column = st.columns(2, gap="medium")
+    choose_column, import_column = st.container(key="maint_row_models").columns(MAINT_COLUMNS, gap="medium")
     with choose_column, st.container(border=True, key="card_model_select"):
-        st.markdown(f"**{t('使用中的版本')}**")
+        st.subheader(t("使用中的版本"))
         for role in REVIEW_ROLES:
             versions = model_registry.list_versions(role)
             options = [model_registry.AUTO] + [v.path.name for v in versions]
@@ -642,8 +646,8 @@ def _model_versions_panel() -> None:
             st.rerun()
 
     with import_column, st.container(border=True, key="card_model_import"):
-        st.markdown(f"**{t('匯入新模型')}**")
-        with st.form("model_import_form", clear_on_submit=True):
+        st.subheader(t("匯入新模型"))
+        with st.form("model_import_form", clear_on_submit=True, border=False):  # no second frame inside the card
             role = st.segmented_control(t("模型"), ["COMB", "SHANK"], default="COMB", key="model_import_role")
             uploaded = st.file_uploader(t("模型檔 (.pt)"), type=["pt"], key="model_import_file")
             farm_column, date_column = st.columns(2)
