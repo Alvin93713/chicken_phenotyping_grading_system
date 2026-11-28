@@ -332,7 +332,7 @@ def progress_ring_html(chicken_id: str, pct: int, previous_pct: int, job: str = 
 # therefore only changes where the number waits, never how smoothly it moves.
 RING_DRIVER_JS = r"""
 (() => {
-  const VERSION = 11;
+  const VERSION = 12;
   if (window.__chickenRingDriver === VERSION) return;
   window.__chickenRingDriver = VERSION;
   const states = (window.__chickenRingStates = window.__chickenRingStates || {});
@@ -366,6 +366,7 @@ RING_DRIVER_JS = r"""
   document.addEventListener('click', (event) => {
     const button = event.target.closest && event.target.closest('.st-key-measure_form_area [data-testid="stFormSubmitButton"] button');
     if (!button || button.disabled) return;
+    if (!document.querySelector('.chicken-motion-on')) return;  // 靜態 style: no ring
     const area = button.closest('.st-key-measure_form_area');
     const id = ((area.innerText.match(/Chicken ID[：:]\s*(\S+)/) || [])[1]) || '';
     setTimeout(() => {  // after Streamlit has handled the click
@@ -477,7 +478,7 @@ def ring_driver_html() -> str:
     embedded = json.dumps(script).replace("<", "\\u003c")
     return (
         "<script>(() => { try { const d = window.parent.document;"
-        " if (window.parent.__chickenRingDriver === 11) return;"
+        " if (window.parent.__chickenRingDriver === 12) return;"
         " const s = d.createElement('script'); s.textContent = " + embedded + ";"
         " d.head.appendChild(s); } catch (e) { console.warn('ring driver not installed', e); } })();</script>"
     )

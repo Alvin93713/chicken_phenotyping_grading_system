@@ -153,6 +153,9 @@ EN = {
         "Weight {weight} g is below {minimum} g. Make sure the chicken is on the scale.",
     # trimmed UI text
     '收集 2 秒平均重量中…': 'Collecting 2 s average weight…',
+    "**量測失敗：{chicken_id}**　{error}": "**Measurement failed: {chicken_id}**  {error}",
+    "**量測中：{chicken_id}**　{message}": "**Measuring: {chicken_id}**  {message}",
+    "**尚無量測結果**": "**No results yet**",
     # ArUco calibration
     "雞冠與腳脛相機可以分別校正：ArUco 標記自動校正，或拍照點兩點手動校正。":
         "Calibrate each camera on its own: automatically with the ArUco marker, or by clicking two points.",

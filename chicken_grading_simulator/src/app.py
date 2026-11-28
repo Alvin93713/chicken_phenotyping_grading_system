@@ -1009,6 +1009,11 @@ input[placeholder="C001"] {
 }
 .st-key-adjust_previews .st-key-dual_preview_comb img,
 .st-key-adjust_previews .st-key-dual_preview_shank img { max-height: 45vh; }  /* 相機調整: 1.5× the usual 30vh */
+/* 靜態 results: the image slot keeps one height whether the photo is there yet or not (no jump) */
+.st-key-snapshot_result_images [data-testid="stImage"] img { height: 19.5vh; width: 100%; }
+.result-image-slot { height: 19.5vh; border-radius: 10px; background: rgba(127, 127, 127, 0.08); }
+.result-image-caption { text-align: center; font-size: 14px; opacity: 0.6; padding-top: 4px; }
+.st-key-snapshot_result_images [data-testid="stColumn"] { height: calc(19.5vh + 34px); overflow: hidden; }  /* photo + caption, same with or without the photo */
 .st-key-snapshot_result_images img {
     max-height: 19.5vh;
     cursor: zoom-in;  /* click = full screen (ui_style.IMAGE_ZOOM_HTML) */
@@ -1755,7 +1760,12 @@ def breed_stats_cards(view_breed: str | None) -> None:
         metrics.append((label, f"{mean:.2f}" if mean is not None else "-", tone))
     # The breed in the class makes the HTML differ per breed, so the digits roll again on every switch.
     breed_class = "breed-" + hashlib.md5(str(view_breed).encode("utf-8")).hexdigest()[:8]
-    st.markdown(ui_style.metric_cards_html(metrics, extra_class=f"breed-stats {breed_class}"), unsafe_allow_html=True)
+    if ui_style.is_motion():
+        st.markdown(ui_style.metric_cards_html(metrics, extra_class=f"breed-stats {breed_class}"),
+                    unsafe_allow_html=True)
+    else:  # 靜態: plain numbers, no rolling digits
+        for (label, value, _), col in zip(metrics, st.container(key="breed_stats_static").columns(len(metrics))):
+            col.metric(label, value)
     details = []
     for column in STAT_TONES:
         item = stats["features"][column]

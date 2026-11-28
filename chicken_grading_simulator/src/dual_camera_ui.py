@@ -556,27 +556,45 @@ def snapshot_results():
     if ui_style.is_motion():
         _snapshot_results_motion(latest, completed, frozen_weight)
         return
-    if latest and not completed and not _progress_ring(latest):
-        st.markdown(_current_task_text(latest))
-        if frozen_weight is not None:
-            st.metric(t("已鎖定體重 (g)"), f"{float(frozen_weight):.2f}")
-    if completed and not _finish_hold(completed):
-        with st.container(key="snapshot_status"):
-            st.markdown(t("**最近完成：{chicken_id} · {grade}**",
-                          chicken_id=completed["chicken ID"], grade=t(completed["初步分級"])))
-        metric_values = (
-            (t("體重 (g)"), completed["體重(g)"], 2),
-            (t("雞冠面積 (cm²)"), completed["雞冠面積(cm²)"], 2),
-            (t("腳脛寬度 (cm)"), completed["腳脛寬度(cm)"], 2),
-            (t("腳脛長度 (cm)"), completed["腳脛長度(cm)"], 2),
-        )
-        # Numbers 2×2, then the two result images, all in the right-hand column.
-        with st.container(key="snapshot_metrics"):
-            metric_columns = [*st.columns(2), *st.columns(2)]
-            for (label, value, digits), col in zip(metric_values, metric_columns):
-                display = "-" if value in (None, "") else f"{float(value):.{digits}f}"
-                col.metric(label, display)
-        _result_images(completed)
+    _snapshot_results_static(latest, completed, frozen_weight)
+
+
+STATIC_METRICS = (("體重 (g)", "體重(g)"), ("雞冠面積 (cm²)", "雞冠面積(cm²)"),
+                  ("腳脛寬度 (cm)", "腳脛寬度(cm)"), ("腳脛長度 (cm)", "腳脛長度(cm)"))
+
+
+def _snapshot_results_static(latest, completed, frozen_weight):
+    """靜態 style: no ring, no rolling numbers. Every refresh draws the same blocks (status line, four numbers,
+    two image slots of fixed height) and only their content changes, so nothing jumps or flashes: while a
+    chicken is measured the numbers show "-" (the weight once it is locked), and they appear when it is done."""
+    if completed:
+        status = t("**最近完成：{chicken_id} · {grade}**", chicken_id=completed["chicken ID"],
+                   grade=t(completed["初步分級"]))
+    elif latest and latest["狀態"] == STATUS_FAILED:
+        status = t("**量測失敗：{chicken_id}**　{error}", chicken_id=latest["chicken ID"],
+                   error=_job_text(latest.get("錯誤") or latest["訊息"]))
+    elif latest:
+        status = t("**量測中：{chicken_id}**　{message}", chicken_id=latest["chicken ID"],
+                   message=_job_text(latest["訊息"]))
+    else:
+        status = t("**尚無量測結果**")
+    with st.container(key="snapshot_status_static"):
+        st.markdown(status)
+        columns = [*st.columns(2), *st.columns(2)]
+        for index, ((label, column), col) in enumerate(zip(STATIC_METRICS, columns)):
+            value = completed.get(column) if completed else None
+            if not completed and index == 0 and latest and latest["狀態"] != STATUS_FAILED:
+                value = frozen_weight  # the locked weight is known before the photos are inferred
+            col.metric(t(label), "-" if value in (None, "") else f"{float(value):.2f}")
+    folder = OUTPUTS_DIR / Path(completed["影片"]).stem / "samples" if completed else None
+    with st.container(key="snapshot_result_images"):
+        for role, col in zip(ROLES, st.columns(2)):
+            path = folder / f"{role}.png" if folder else None
+            if path and path.exists():
+                col.image(str(path), caption=_label(role), width="stretch")
+            else:  # an empty frame of the same size keeps the page from moving when the photo arrives
+                col.markdown(f'<div class="result-image-slot"></div><div class="result-image-caption">'
+                             f'{_label(role)}</div>', unsafe_allow_html=True)
 
 
 @st.fragment(run_every=1)
@@ -722,12 +740,14 @@ def phenotype_page(helpers):
                     st.error(error)  # next to the button (not at the page bottom)
                 elif breed_mismatch_message(query_id):  # warn on scan, before the button is pressed
                     st.warning(breed_mismatch_message(query_id))
-        st.html(ui_style.ring_driver_html(), unsafe_allow_javascript=True)  # browser-side ring animation (installed once)
+        if ui_style.is_motion():  # 靜態: no progress ring at all (also no instant ring on the button)
+            st.html(ui_style.ring_driver_html(), unsafe_allow_javascript=True)  # browser-side ring animation
+            st.markdown('<span class="chicken-motion-on" hidden></span>', unsafe_allow_html=True)
         st.html(ui_style.IMAGE_ZOOM_HTML, unsafe_allow_javascript=True)  # click an inference photo -> full screen
         # The capture ring lives here, a slot that exists in EVERY run (the form above disappears once the ID
         # is cleared), so the next run clears it before the job's ring below is drawn: never two rings.
         capture_slot = st.empty()
-        if submitted and query_id:
+        if submitted and query_id and ui_style.is_motion():
             # Ring at 20 % straight away, in the same place the job's ring will take over after the re-run.
             capture_key = f"capture-{time.time_ns()}"
             st.session_state["_capture_ring_on"] = True
