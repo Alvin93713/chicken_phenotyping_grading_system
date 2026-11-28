@@ -153,4 +153,29 @@ EN = {
         "Weight {weight} g is below {minimum} g. Make sure the chicken is on the scale.",
     # trimmed UI text
     '收集 2 秒平均重量中…': 'Collecting 2 s average weight…',
+    # ArUco calibration
+    "雞冠與腳脛相機可以分別校正：ArUco 標記自動校正，或拍照點兩點手動校正。":
+        "Calibrate each camera on its own: automatically with the ArUco marker, or by clicking two points.",
+    "校正方式": "Method",
+    "ArUco 自動": "ArUco (auto)",
+    "手動點選": "Manual points",
+    "方式": "Method",
+    "參考長度 (cm)": "Reference length (cm)",
+    "{label} 標記邊長 (cm)": "{label} marker side (cm)",
+    "黑色外框的邊長。列印尺寸不準時，請填用尺量到的實際邊長。":
+        "Edge of the black frame. If the print was scaled, enter the side length measured with a ruler.",
+    "找到 ID {marker_id} 標記：邊長 {side} px，比例 {scale} cm/像素":
+        "Found marker ID {marker_id}: side {side} px, scale {scale} cm/pixel",
+    "找不到可用的標記，請重新拍攝或改用手動點選": "No usable marker; retake the photo or use manual points",
+    "無法讀取校正照片，請重新拍攝": "Cannot read the calibration photo; please retake it",
+    "可調整標記後重新拍攝，或在上方改用「手動點選」": "Adjust the marker and retake, or switch to manual points above",
+    "找不到 ID {marker_id} 標記，請確認標記在畫面中、沒有被遮住或反光":
+        "Marker ID {marker_id} not found; make sure it is in view, not covered and without glare",
+    "畫面中只找到 ID {found} 標記，這台相機應使用 ID {marker_id}":
+        "Only marker ID {found} is in view; this camera uses ID {marker_id}",
+    "畫面中有 {count} 個 ID {marker_id} 標記，請只留一個": "{count} markers with ID {marker_id} are in view; keep only one",
+    "標記在畫面中太小（邊長 {side:.0f} px，至少需 {minimum} px），請改用較大的標記或靠近相機":
+        "The marker is too small ({side:.0f} px, at least {minimum} px); use a bigger marker or move it closer",
+    "標記太斜（最長邊／最短邊 = {ratio:.2f}），請讓標記正對相機":
+        "The marker is too tilted (longest / shortest side = {ratio:.2f}); face it to the camera",
 }

@@ -7,6 +7,8 @@ from urllib.parse import urlsplit
 
 import pandas as pd
 import streamlit as st
+import cv2
+import numpy as np
 from PIL import Image, ImageDraw
 from streamlit_image_coordinates import streamlit_image_coordinates
 
@@ -14,6 +16,8 @@ from dual_camera import (
     MODEL_PATHS, ROLES, capture_one, capture_pair, ensure_preview_server, save_one, save_pair,
     validate_calibration,
 )
+import aruco_calibration
+from database import breed_mismatch_message, get_current_breed
 from inference_queue import enqueue_snapshot_job, list_jobs, STATUS_COMPLETED, STATUS_FAILED
 from inference_utils import DATA_DIR, OUTPUTS_DIR
 from i18n import t, t_records
@@ -34,7 +38,7 @@ def _job_text(text):
     text = "" if text is None else str(text)
     prefix, separator, role = text.removesuffix(" 單張照片").partition("正在推論 ")
     if text.endswith(" 單張照片") and separator and not prefix:
-        return t("正在推論 {role} 單張照片", role=role)
+        return t("正在推論 {role} 單張照片", role=t({"comb": "雞冠", "shank": "腳脛"}.get(role, role)))
     return t(text)
 
 
@@ -166,30 +170,38 @@ def load_calibration_history() -> list:
     return entries
 
 
-def record_calibration(calibrations, points, lengths, photos, now=None) -> dict:
-    """Append this calibration to data/calibration_history.jsonl. Per role: camera, the two clicked points,
-    their pixel distance, the ruler length, cm/pixel and its change from the previous calibration of that
-    role (None the first time). Returns the entry."""
+def record_calibration(calibrations, points, lengths, photos, now=None, details=None) -> dict:
+    """Append this calibration to data/calibration_history.jsonl. Per role: camera, method (manual = two
+    clicked points, aruco = detected marker), the points / marker corners, their pixel distance (marker: mean
+    side), the ruler / marker length, cm/pixel and its change from the previous calibration of that role
+    (None the first time). details[role] (ArUco) is stored as well. Returns the entry."""
     previous = {}
     for old in load_calibration_history():
         for role, value in (old.get("roles") or {}).items():
             previous[role] = value
     roles = {}
     for role, value in calibrations.items():
-        (x1, y1), (x2, y2) = points[role]
+        detail = (details or {}).get(role)
         before = (previous.get(role) or {}).get("cm_per_pixel")
         cm_per_pixel = float(value["cm_per_pixel"])
-        roles[role] = {
+        record = {
             "camera": value["camera"],
             "image_size": list(value["shape"]),
-            "points": [[x1, y1], [x2, y2]],
-            "pixel_distance": round(((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5, 3),
+            "method": value.get("method", "manual"),
             "ruler_cm": float(lengths[role]),
             "cm_per_pixel": cm_per_pixel,
             "previous_cm_per_pixel": before,
             "change_ratio": None if not before else round(cm_per_pixel / float(before) - 1, 6),
             "photo": str(photos[role]),
         }
+        if detail:  # ArUco: the marker and its corners instead of two clicked points
+            record.update(marker_id=detail["marker_id"], corners=detail["corners"], pixel_distance=detail["side_px"],
+                          side_ratio=detail["side_ratio"])
+        else:
+            (x1, y1), (x2, y2) = points[role]
+            record.update(points=[[x1, y1], [x2, y2]],
+                          pixel_distance=round(((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5, 3))
+        roles[role] = record
     entry = {"time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), "roles": roles}
     path = _calibration_history_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -211,7 +223,8 @@ def calibration_history_table(limit=20) -> None:
                 "校正時間": entry.get("time", ""),
                 "相機": _label(role),
                 "camera ID": value.get("camera"),
-                "量尺長度 (cm)": f'{float(value.get("ruler_cm") or 0):.2f}',
+                "方式": t(METHOD_LABELS.get(value.get("method", "manual"), "手動點選")),
+                "參考長度 (cm)": f'{float(value.get("ruler_cm") or 0):.2f}',
                 "像素距離": f'{float(value.get("pixel_distance") or 0):.2f}',
                 "cm/pixel": f'{float(value.get("cm_per_pixel") or 0):.6f}',
                 "與上次相比": "-" if change is None else f"{change * 100:+.2f}%",
@@ -331,8 +344,49 @@ def point_picker(role, photo):
         st.rerun()
 
 
-def _calibration_ready(role):
-    return bool(st.session_state.get(f"dual_calibration_photo_{role}")) and         len(st.session_state.get(f"dual_{role}_points", [])) == 2
+# --- calibration methods: ArUco marker (automatic, default) or two clicked points on a ruler (manual) ---------
+METHOD_ARUCO, METHOD_MANUAL = "aruco", "manual"
+METHODS = (METHOD_ARUCO, METHOD_MANUAL)
+METHOD_LABELS = {METHOD_ARUCO: "ArUco 自動", METHOD_MANUAL: "手動點選"}
+
+
+def _calibration_method(role):
+    """The chosen method of one camera. Kept in a separate key: Streamlit drops a widget's state when the
+    page is left, the choice should survive that."""
+    widget_key, saved_key = f"calibration_method_{role}", f"dual_{role}_calibration_method"
+    if st.session_state.get(widget_key) in METHODS:
+        st.session_state[saved_key] = st.session_state[widget_key]
+    else:
+        st.session_state[widget_key] = st.session_state.get(saved_key, METHOD_ARUCO)
+    return st.session_state[widget_key]
+
+
+def _saved_marker_cm(role):
+    value = (_load_camera_settings().get("aruco_marker_cm") or {}).get(role)
+    try:
+        return float(value) if value and float(value) > 0 else aruco_calibration.DEFAULT_MARKER_CM
+    except (TypeError, ValueError):
+        return aruco_calibration.DEFAULT_MARKER_CM
+
+
+def _aruco_result(role, length):
+    """(detection, photo) for this camera's calibration photo, or None before a photo is taken."""
+    photo = st.session_state.get(f"dual_calibration_photo_{role}")
+    if not photo:
+        return None
+    frame = cv2.imdecode(np.fromfile(str(photo), dtype=np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        return None
+    return aruco_calibration.detect(frame, aruco_calibration.MARKER_IDS[role], length), frame
+
+
+def _calibration_ready(role, length=None):
+    if not st.session_state.get(f"dual_calibration_photo_{role}"):
+        return False
+    if st.session_state.get(f"dual_{role}_calibration_method", METHOD_ARUCO) == METHOD_ARUCO:
+        detected = _aruco_result(role, length or _saved_marker_cm(role))
+        return bool(detected and detected[0]["ok"])
+    return len(st.session_state.get(f"dual_{role}_points", [])) == 2
 
 
 def _capture_label(role):
@@ -344,36 +398,83 @@ def _confirm_label(role):
 
 
 def _confirm_calibration(role, index, length):
-    """Calibrate ONE camera: its two points + ruler length -> cm/pixel. The other camera's calibration is kept."""
+    """Calibrate ONE camera (the other camera's calibration is kept): the detected ArUco marker + its side
+    length, or two clicked points + the ruler length -> cm/pixel."""
     photo = st.session_state[f"dual_calibration_photo_{role}"]
     if index != st.session_state.get(f"dual_calibration_camera_{role}"):
         raise ValueError(t("拍攝後已更改相機，請重新拍攝校正照片"))
-    points = st.session_state[f"dual_{role}_points"]
-    (x1, y1), (x2, y2) = points
-    distance = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
-    if distance <= 0:
-        raise ValueError(t("{role} 兩個校正點不可重疊", role=role))
+    method = st.session_state.get(f"dual_{role}_calibration_method", METHOD_ARUCO)
     with Image.open(photo) as image:
         shape = [image.height, image.width]
-    calibration = dict(camera=index, shape=shape, cm_per_pixel=length / distance)
+    points = details = None
+    if method == METHOD_ARUCO:
+        detected = _aruco_result(role, length)
+        if not detected or not detected[0]["ok"]:
+            raise ValueError(t("找不到可用的標記，請重新拍攝或改用手動點選"))
+        details = {role: detected[0]}
+        cm_per_pixel = detected[0]["cm_per_pixel"]
+        markers = dict(_load_camera_settings().get("aruco_marker_cm") or {})
+        markers[role] = float(length)
+        _save_camera_settings(aruco_marker_cm=markers)  # the measured side length is kept for next time
+    else:
+        points = st.session_state[f"dual_{role}_points"]
+        (x1, y1), (x2, y2) = points
+        distance = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+        if distance <= 0:
+            raise ValueError(t("{role} 兩個校正點不可重疊", role=_label(role)))
+        cm_per_pixel = length / distance
+    calibration = dict(camera=index, shape=shape, cm_per_pixel=cm_per_pixel, method=method)
     restore_camera_settings()
     calibrations = dict(st.session_state.get("dual_calibrations") or {})
     calibrations[role] = calibration
     st.session_state.dual_calibrations = calibrations
     _save_camera_settings(calibrations=calibrations)
-    return record_calibration({role: calibration}, {role: points}, {role: length}, {role: photo})
+    return record_calibration({role: calibration}, {role: points}, {role: length}, {role: photo}, details=details)
+
+
+def _aruco_view(role, length):
+    """The calibration photo with the marker outlined, and what was found (or why it cannot be used)."""
+    detected = _aruco_result(role, length)
+    if not detected:
+        st.warning(t("無法讀取校正照片，請重新拍攝"))
+        return
+    result, frame = detected
+    with st.container(key=f"calib_aruco_{role}", horizontal_alignment="center"):
+        st.image(aruco_calibration.annotate(frame, result), channels="BGR", width=520)
+    if result["ok"]:
+        st.success(t("找到 ID {marker_id} 標記：邊長 {side} px，比例 {scale} cm/像素",
+                     marker_id=result["marker_id"], side=f'{result["side_px"]:.2f}',
+                     scale=f'{result["cm_per_pixel"]:.6f}'))
+    else:
+        st.error(t(result["error"], **result["error_values"]))
+        st.caption(t("可調整標記後重新拍攝，或在上方改用「手動點選」"))
 
 
 def calibration_page(heading, hotkey):
-    heading(t("雙相機比例尺校正"), t("雞冠與腳脛相機可以分別校正，各自拍照、點兩點、確定即可。"))
+    heading(t("雙相機比例尺校正"), t("雞冠與腳脛相機可以分別校正：ArUco 標記自動校正，或拍照點兩點手動校正。"))
     # One card per camera; its camera ID sits inside it.
     cards = [col.container(border=True, key=f"card_calibration_{role}")
              for role, col in zip(ROLES, st.columns(2, gap="medium"))]
+    methods = {}
     for role, card in zip(ROLES, cards):
         card.subheader(_label(role))
+        methods[role] = _calibration_method(role)
+        card.segmented_control(t("校正方式"), METHODS, key=f"calibration_method_{role}",
+                               format_func=lambda value: t(METHOD_LABELS[value]))
     indices = camera_settings("calibration", columns=cards)
-    # N hotkey: confirm a camera whose two points are picked, else take the next camera's photo.
-    ready = [role for role in ROLES if _calibration_ready(role)]
+    lengths = {}
+    for role, card in zip(ROLES, cards):
+        with card:
+            if methods[role] == METHOD_ARUCO:
+                lengths[role] = st.number_input(
+                    t("{label} 標記邊長 (cm)", label=_label(role)), min_value=0.1, max_value=50.0,
+                    value=_saved_marker_cm(role), step=0.1, format="%.2f", key=f"dual_{role}_marker_cm",
+                    help=t("黑色外框的邊長。列印尺寸不準時，請填用尺量到的實際邊長。"))
+            else:
+                lengths[role] = st.number_input(t("{label} 比例尺長度 (cm)", label=_label(role)),
+                                                min_value=0.001, value=20.0, key=f"dual_{role}_real_length")
+    # N hotkey: confirm a camera that is ready, else take the next camera's photo.
+    ready = [role for role in ROLES if _calibration_ready(role, lengths[role])]
     waiting = [role for role in ROLES if not st.session_state.get(f"dual_calibration_photo_{role}")]
     hotkey(_confirm_label(ready[0]) if ready else _capture_label((waiting or list(ROLES))[0]))
     try:
@@ -383,8 +484,7 @@ def calibration_page(heading, hotkey):
         st.error(str(exc))
     for role, card in zip(ROLES, cards):
         with card:
-            length = st.number_input(t("{label} 比例尺長度 (cm)", label=_label(role)),
-                                     min_value=0.001, value=20.0, key=f"dual_{role}_real_length")
+            length = lengths[role]
             capture_col, confirm_col = st.columns(2)
             if capture_col.button(_capture_label(role), width="stretch", key=f"calibration_capture_{role}"):
                 try:
@@ -396,7 +496,7 @@ def calibration_page(heading, hotkey):
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
-            if confirm_col.button(_confirm_label(role), disabled=not _calibration_ready(role), type="primary",
+            if confirm_col.button(_confirm_label(role), disabled=role not in ready, type="primary",
                                   width="stretch", key=f"calibration_confirm_{role}"):
                 try:
                     entry = _confirm_calibration(role, indices[role], length)
@@ -408,8 +508,11 @@ def calibration_page(heading, hotkey):
                 except Exception as exc:
                     st.error(str(exc))
             photo = st.session_state.get(f"dual_calibration_photo_{role}")
-            if photo:
-                point_picker(role, photo)
+            if photo and methods[role] == METHOD_ARUCO:
+                _aruco_view(role, length)
+            elif photo:
+                with st.container(key=f"calib_picker_{role}", horizontal_alignment="center"):  # photo centred in its card
+                    point_picker(role, photo)
             elif port:
                 _preview_image(role, indices[role], port)
             _calibration_metric(role, indices[role])
@@ -577,7 +680,7 @@ def phenotype_page(helpers):
     with operator_column, st.container(key="pheno_operator"):
         for role, path in MODEL_PATHS.items():
             if not path.is_file():
-                st.error(t("找不到 {role} 模型：{path}", role=role, path=path))
+                st.error(t("找不到 {role} 模型：{path}", role=_label(role), path=path))
         query_id = helpers["resolve_qrcode_input"]("phenotype_entry", auto_focus=True,
                                                   scanner_mode=True, show_confirmation=False)
         if query_id:
@@ -617,6 +720,8 @@ def phenotype_page(helpers):
                 error = st.session_state.pop("_measure_error", None)
                 if error:
                     st.error(error)  # next to the button (not at the page bottom)
+                elif breed_mismatch_message(query_id):  # warn on scan, before the button is pressed
+                    st.warning(breed_mismatch_message(query_id))
         st.html(ui_style.ring_driver_html(), unsafe_allow_javascript=True)  # browser-side ring animation (installed once)
         st.html(ui_style.IMAGE_ZOOM_HTML, unsafe_allow_javascript=True)  # click an inference photo -> full screen
         # The capture ring lives here, a slot that exists in EVERY run (the form above disappears once the ID
@@ -680,6 +785,9 @@ def phenotype_page(helpers):
     if query_id:
         if submitted:
             try:
+                mismatch = breed_mismatch_message(query_id)
+                if mismatch:  # an existing chicken of another breed is not measured under the current breed
+                    raise ValueError(mismatch)
                 if photo_mode and set(supplied_frames) != set(ROLES):
                     raise ValueError(t("請先上傳雞冠與腳脛兩張照片"))
                 if not photo_mode and not all(calibrations.get(role, {}).get("camera") == indices[role] for role in ROLES):
@@ -704,7 +812,8 @@ def phenotype_page(helpers):
                 # Next scan — even of the same ID (a retake) — starts a fresh live weight collection.
                 st.session_state.scale_active_chicken_id = None
                 job_id = enqueue_snapshot_job(query_id, weight, paths, scales, confidence,
-                    bool(st.session_state.get("arduino_light_enabled", True)), helpers["default_arduino_port"]())
+                    bool(st.session_state.get("arduino_light_enabled", True)), helpers["default_arduino_port"](),
+                    breed=get_current_breed())
                 st.session_state.dual_last_job = job_id
                 st.session_state.phenotype_entry_confirmed_manual_id = ""
                 st.session_state.phenotype_entry_input_version = int(st.session_state.get("phenotype_entry_input_version", 0)) + 1

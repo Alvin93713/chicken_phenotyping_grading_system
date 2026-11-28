@@ -113,17 +113,21 @@ def record_case(
     force: bool = False,
     review_confidence: float = DEFAULT_REVIEW_CONFIDENCE,
     sample_rate: float = DEFAULT_QA_SAMPLE_RATE,
+    flag_reason: str = "",
 ) -> bool:
+    """flag_reason: a measurement check that failed (e.g. the two legs disagree) — always sent to review."""
     valid_confidences = [float(value) for value in role_confidences.values() if value is not None]
     minimum_confidence = min(valid_confidences) if valid_confidences else None
     failed = pipeline_status == "失敗" or bool(error)
     low_confidence = minimum_confidence is None or minimum_confidence < float(review_confidence)
     sampled = _qa_sample_selected(job_id, sample_rate)
-    if not (force or failed or low_confidence or sampled):
+    if not (force or failed or low_confidence or flag_reason or sampled):
         return False
 
     if failed:
         priority, reason = "高", "推論失敗"
+    elif flag_reason:
+        priority, reason = "高", flag_reason
     elif low_confidence:
         priority, reason = "高", f"最低信心 {minimum_confidence:.2f}" if minimum_confidence is not None else "缺少信心分數"
     else:
@@ -197,7 +201,13 @@ def record_snapshot_review(job, output_folder: Path, measurements=None, error: s
         role: str(cameras.get(role, {}).get("model", ""))
         for role in ("comb", "shank")
     }
+    leg_check = cameras.get("shank", {}).get("leg_check") or {}
+    flag_reason = ""
+    if leg_check.get("disagree"):
+        difference = max((leg_check.get("difference") or {}).values(), default=0.0)
+        flag_reason = f"兩腳差異 {difference * 100:.0f}%"
     return record_case(
+        flag_reason=flag_reason,
         job_id=job.job_id,
         chicken_id=job.chicken_id,
         pipeline_status="失敗" if error else "已完成",

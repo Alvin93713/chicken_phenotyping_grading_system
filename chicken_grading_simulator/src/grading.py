@@ -82,11 +82,12 @@ def grade_details(chicken, enabled_features, pass_thresholds, standby_thresholds
 
 
 def grade_and_store_with_latest_config(chicken):
-    """Grade one chicken row with the latest saved thresholds and store the result.
-    Returns (grade, light), or (None, None) when no thresholds have been saved yet."""
-    from database import get_latest_grading_config, update_grading_result
+    """Grade one chicken row with its breed's latest saved thresholds and store the result.
+    Returns (grade, light), or (None, None) when no thresholds have been saved for that breed yet."""
+    from database import get_chicken, get_latest_grading_config, update_grading_result
 
-    config = get_latest_grading_config()
+    breed = chicken.get("breed") or (get_chicken(chicken["chicken_id"]) or {}).get("breed")
+    config = get_latest_grading_config(breed)
     if not config:
         return None, None
     selected_features, pass_thresholds, standby_thresholds = config

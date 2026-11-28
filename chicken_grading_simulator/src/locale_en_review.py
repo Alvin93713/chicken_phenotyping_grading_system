@@ -33,6 +33,7 @@ EN = {
     "缺少信心分數": "Confidence score missing",
     "例行品質抽樣": "Routine quality sample",
     "最低信心 {value}": "Lowest confidence {value}",
+    "兩腳差異 {value}": "Legs differ by {value}",
     "comb 未偵測到有效遮罩": "No valid comb mask detected",
     # --- case review ---------------------------------------------------------------------
     "上一張：{chicken_id} · {role} → 判定為「{decision}」。選錯了可以復原。":

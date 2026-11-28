@@ -167,9 +167,12 @@ def controls() -> None:
         "header[data-testid='stHeader'] a,header[data-testid='stHeader'] a *{pointer-events:auto}</style>",
         unsafe_allow_html=True,
     )
-    st.session_state.setdefault("ui_style_choice", prefs["style"])
-    st.session_state.setdefault("ui_theme_choice", prefs["theme"])
-    with st.popover(t("外觀"), width="stretch"):
+    # Set on EVERY run (not only the first): the menu's controls are not mounted while the popover is closed, and
+    # a run that does not set their value sends none to the browser — after a page switch the menu then opened
+    # with nothing selected. Setting it each run always sends the saved choice (callbacks save before this).
+    st.session_state.ui_style_choice = prefs["style"]
+    st.session_state.ui_theme_choice = prefs["theme"]
+    with st.popover(t("外觀"), width="content"):
         st.segmented_control(t("介面樣式"), STYLES, key="ui_style_choice", on_change=_on_change, format_func=_option_label)
         st.segmented_control(t("色彩主題"), THEMES, key="ui_theme_choice", on_change=_on_change, format_func=_option_label)
         is_original = prefs["style"] == STYLE_CLASSIC and prefs["theme"] == THEME_DARK
@@ -187,7 +190,7 @@ def _on_language_change() -> None:
 
 def language_switch() -> None:
     """中文 / English switch shown next to the 外觀 button."""
-    st.session_state.setdefault("ui_lang_choice", current()["lang"])
+    st.session_state.ui_lang_choice = current()["lang"]  # every run, like controls(): never shown empty
     st.segmented_control(
         "Language",
         LANGUAGES,
@@ -493,7 +496,8 @@ def style_grade_columns(frame, columns):
         styler = styler.map(lambda value: f"color: {colors[value]}; font-weight: 700" if value in colors else "",
                             subset=present)
     numeric = frame.select_dtypes("number").columns
-    return styler.format(lambda value: f"{value:.2f}", subset=numeric, na_rep="None")  # 2 decimals everywhere
+    styler = styler.format(na_rep="-")  # empty cells: "-" (not "None")
+    return styler.format(lambda value: f"{value:.2f}", subset=numeric, na_rep="-")  # 2 decimals everywhere
 
 
 def _delay_rules() -> str:
@@ -544,7 +548,7 @@ MOTION_CSS = """
 .mo-dot { width: 10px; height: 10px; border-radius: 5px; background: var(--mo-tone); flex: none; }
 .mo-weight { --mo-tone: var(--mo-weight); } .mo-comb { --mo-tone: var(--mo-comb); } .mo-shank { --mo-tone: var(--mo-shank); }
 .mo-value { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.mo-unit { font-size: 1.05rem; color: var(--mo-muted); }
+.mo-unit { font-size: 2.1rem; line-height: 1; color: var(--mo-muted); }
 .mo-odo { display: inline-flex; align-items: flex-end; font-family: 'Space Grotesk', Inter, system-ui, sans-serif;
     font-variant-numeric: tabular-nums; font-size: clamp(2.1rem, 2.9vw, 3.6rem); font-weight: 650;
     line-height: 1; letter-spacing: -.02em; color: var(--mo-num); }
@@ -572,7 +576,7 @@ MOTION_CSS = """
 .st-key-snapshot_status .mo-card { padding: 10px 14px 9px; gap: 4px; }
 .st-key-snapshot_status .mo-label { font-size: 1.22rem; font-weight: 700; color: var(--mo-num); gap: 9px; }
 .st-key-snapshot_status .mo-dot { width: 12px; height: 12px; border-radius: 6px; }
-.st-key-snapshot_status .mo-unit { font-size: 1.15rem; }
+.st-key-snapshot_status .mo-unit { font-size: 2.3rem; }
 .st-key-snapshot_result_images [data-testid="stImageCaption"] { margin-top: 2px; padding: 0; }
 @media (prefers-reduced-motion: reduce) {
     .mo-strip { animation-duration: 0s; } .mo-card, .mo-id, .mo-badge, .mo-bar, [data-testid="stMetric"] { animation: none; }

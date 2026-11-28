@@ -165,7 +165,7 @@ def save_one(frame, role, kind="calibration_captures"):
     path = folder / f"{role}.png"
     ok, encoded = cv2.imencode(".png", frame)
     if not ok:
-        raise RuntimeError(t("無法儲存 {role} 照片", role=role))
+        raise RuntimeError(t("無法儲存 {role} 照片", role=t(ROLE_ZH.get(role, role))))
     encoded.tofile(str(path))
     return str(path)
 
@@ -284,7 +284,7 @@ def save_pair(frames, kind="snapshots"):
         # imencode/tofile also supports Windows Unicode paths.
         ok, encoded = cv2.imencode(".png", frames[role])
         if not ok:
-            raise RuntimeError(t("無法儲存 {role} 照片", role=role))
+            raise RuntimeError(t("無法儲存 {role} 照片", role=t(ROLE_ZH.get(role, role))))
         encoded.tofile(str(path))
         paths[role] = str(path)
     return paths
@@ -302,7 +302,7 @@ def load_model(path, modified):
 def model_for(role):
     path = MODEL_PATHS[role]
     if not path.is_file():
-        raise FileNotFoundError(f"找不到 {role} 模型：{path}")
+        raise FileNotFoundError(f"找不到{ROLE_ZH.get(role, role)}模型：{path}")
     return load_model(str(path), path.stat().st_mtime_ns)
 
 
@@ -419,6 +419,7 @@ def validate_calibration(calibration, index, shape):
 
 
 MASK_CONFIDENCE_MARGIN = 0.15
+ROLE_ZH = {"comb": "雞冠", "shank": "腳脛"}  # role names in messages shown to the user
 
 
 def select_mask_index(areas, confidences, margin=MASK_CONFIDENCE_MARGIN):
@@ -430,6 +431,44 @@ def select_mask_index(areas, confidences, margin=MASK_CONFIDENCE_MARGIN):
         best = max(confidences)
         indices = [i for i in indices if confidences[i] >= best - margin]
     return max(indices, key=lambda i: areas[i])
+
+
+LEG_AGREEMENT_TOLERANCE = 0.15  # two legs within this relative difference → averaged (testing 15%; plan 10%)
+SECOND_LEG_MIN_AREA_RATIO = 0.25  # a smaller mask counts as the other leg only if at least this share of the first
+SECOND_LEG_MAX_OVERLAP = 0.5  # …and it is not the same leg detected twice (overlap / smaller mask)
+
+
+def select_leg_indices(areas, confidences, overlaps=None, margin=MASK_CONFIDENCE_MARGIN):
+    """Up to two shank detections, one per leg: the mask select_mask_index picks, plus the next largest
+    confident mask that is big enough and does not cover the same leg. overlaps(i, j) → intersection / smaller."""
+    first = select_mask_index(areas, confidences, margin)
+    candidates = range(len(areas))
+    if len(confidences) == len(areas) and confidences:
+        best = max(confidences)
+        candidates = [i for i in candidates if confidences[i] >= best - margin]
+    for i in sorted(candidates, key=lambda i: areas[i], reverse=True):
+        if i == first or areas[i] < SECOND_LEG_MIN_AREA_RATIO * areas[first]:
+            continue
+        if overlaps is not None and overlaps(first, i) > SECOND_LEG_MAX_OVERLAP:
+            continue
+        return [first, i]
+    return [first]
+
+
+def combine_legs(legs, tolerance=LEG_AGREEMENT_TOLERANCE):
+    """legs: [{"width", "length"}] in cm, the first one from the largest mask.
+    One leg → its values. Two legs agreeing within `tolerance` on width and length → their mean.
+    Otherwise → the largest-mask leg (the other is most likely occluded or tilted) and `disagree` is set,
+    which sends the case to review. Returns (width, length, info)."""
+    if len(legs) < 2:
+        return legs[0]["width"], legs[0]["length"], {"method": "single", "legs": legs, "disagree": False}
+    a, b = legs[:2]
+    differences = {key: abs(a[key] - b[key]) / max(a[key], b[key]) for key in ("width", "length")}
+    info = {"legs": legs[:2], "difference": {k: round(v, 4) for k, v in differences.items()},
+            "tolerance": tolerance}
+    if max(differences.values()) <= tolerance:
+        return (a["width"] + b["width"]) / 2, (a["length"] + b["length"]) / 2, dict(info, method="mean", disagree=False)
+    return a["width"], a["length"], dict(info, method="largest", disagree=True)
 
 
 def infer_pair(paths, scales, confidence, progress):
@@ -446,7 +485,7 @@ def infer_pair(paths, scales, confidence, progress):
         model = model_for(role)
         frame = cv2.imdecode(np.fromfile(paths[role], dtype=np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
-            raise ValueError(f"無法讀取 {role} 照片")
+            raise ValueError(f"無法讀取{ROLE_ZH[role]}照片")
         classes = target_classes(model, role)
         with _model_locks[role]:
             result = model.predict(frame, conf=float(confidence), classes=classes,
@@ -454,7 +493,7 @@ def infer_pair(paths, scales, confidence, progress):
                                    verbose=False)[0]
         if result.masks is None or result.boxes is None or len(result.boxes) == 0:
             raise ValueError(
-                f"{role} 未偵測到有效遮罩（confidence={float(confidence):.2f}），"
+                f"{ROLE_ZH[role]}未偵測到有效遮罩（信心門檻 {float(confidence):.2f}），"
                 "請降低門檻或更換照片；未更新量測資料"
             )
         masks = result.masks.data.cpu().numpy()
@@ -475,14 +514,22 @@ def infer_pair(paths, scales, confidence, progress):
         scale = float(scales[role])
         if not math.isfinite(scale) or scale <= 0:
             raise ValueError("校正比例必須為正數")
+        leg_check = None
         if role == "comb":
             measurements["comb_area_cm2"] = round(float(mask.sum()) * scale**2, 4)
         else:
-            width, length = _mask_sides_px(mask)
-            if width is None or length is None:
-                raise ValueError("Shank 遮罩無法計算寬度及長度")
-            measurements.update(shank_width_cm=round(width * scale, 4),
-                                shank_length_cm=round(length * scale, 4))
+            binary = masks > 0.5
+            overlaps = lambda i, j: float((binary[i] & binary[j]).sum()) / max(1, min(mask_areas[i], mask_areas[j]))
+            legs = []
+            for index in select_leg_indices(mask_areas, confidence_values, overlaps):
+                width, length = _mask_sides_px(binary[index])
+                if width is not None and length is not None:
+                    legs.append({"width": width * scale, "length": length * scale,
+                                 "confidence": confidence_values[index] if index < len(confidence_values) else None})
+            if not legs:
+                raise ValueError("腳脛遮罩無法計算寬度及長度")
+            width_cm, length_cm, leg_check = combine_legs(legs)
+            measurements.update(shank_width_cm=round(width_cm, 4), shank_length_cm=round(length_cm, 4))
         sample = samples / f"{role}.png"
         ok, encoded = cv2.imencode(".png", result.plot())
         if not ok:
@@ -500,6 +547,8 @@ def infer_pair(paths, scales, confidence, progress):
             "confidence_threshold": confidence,
             "detection_confidence": selected_confidence,
         }
+        if leg_check is not None:
+            metadata["cameras"][role]["leg_check"] = leg_check
     metadata["measurements"] = measurements
     (folder / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     progress(2, 2, "兩張照片推論完成")

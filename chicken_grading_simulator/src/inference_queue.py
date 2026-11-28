@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 
 from arduino_control import commands_for_grade, light_for, list_serial_ports
-from database import add_chicken, get_chicken, update_chicken
+from database import add_chicken, get_chicken, get_current_breed, update_chicken
 from grading import grade_and_store_with_latest_config
 from dual_camera import infer_pair
 from inference_utils import OUTPUTS_DIR
@@ -51,6 +51,7 @@ class InferenceJob:
     updated_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     snapshot_paths: Optional[Dict[str, str]] = None
     snapshot_scales: Optional[Dict[str, float]] = None
+    breed: Optional[str] = None  # the current breed when the photos were taken (a later switch does not move it)
 
 
 _jobs: Dict[str, InferenceJob] = {}
@@ -118,8 +119,9 @@ def ensure_worker_running() -> None:
         _worker_thread.start()
 
 
-def enqueue_snapshot_job(chicken_id, weight_g, paths, scales, confidence, hardware_enabled, arduino_port):
+def enqueue_snapshot_job(chicken_id, weight_g, paths, scales, confidence, hardware_enabled, arduino_port, breed=None):
     job = InferenceJob(
+        breed=breed or get_current_breed(),
         job_id=uuid4().hex[:12], chicken_id=chicken_id, weight_g=float(weight_g),
         confidence_threshold=float(confidence),
         hardware_enabled=hardware_enabled, arduino_port=arduino_port,
@@ -141,10 +143,12 @@ def _process_snapshot(job):
         lambda done, total, message: _update_job(job.job_id, progress_completed=done,
                                                 progress_total=total, message=message),
     )
-    write = update_chicken if get_chicken(job.chicken_id) else add_chicken
+    existing = get_chicken(job.chicken_id)
+    write = update_chicken if existing else add_chicken
+    breed = (existing or {}).get("breed") or job.breed  # an existing chicken keeps its breed
     write(job.chicken_id, job.weight_g, measurements["comb_area_cm2"],
-          measurements["shank_width_cm"], measurements["shank_length_cm"])
-    row = {"chicken_id": job.chicken_id, "weight_g": job.weight_g, **measurements}
+          measurements["shank_width_cm"], measurements["shank_length_cm"], breed=breed)
+    row = {"chicken_id": job.chicken_id, "breed": breed, "weight_g": job.weight_g, **measurements}
     grade, light, hardware = _run_preliminary_grading_and_light(job, row)
     _update_job(job.job_id, status=STATUS_COMPLETED, progress_completed=2,
                 message="雙相機推論完成，結果已寫入資料庫", result_row=row,

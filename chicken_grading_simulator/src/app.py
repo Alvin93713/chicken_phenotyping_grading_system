@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+from html import escape as html_escape
 import json
 import time
 from pathlib import Path
@@ -11,8 +13,18 @@ import pandas as pd
 import streamlit as st
 
 from database import (
+    add_breed,
     add_chicken,
+    breed_chicken_count,
+    breed_mismatch_message,
+    breed_stats,
+    delete_breed,
+    breed_threshold_history,
     delete_chicken,
+    get_current_breed,
+    list_breeds,
+    save_breed_thresholds,
+    set_current_breed,
     export_csv_bytes,
     get_all_chickens,
     get_all_chickens_df,
@@ -553,13 +565,13 @@ section[data-testid="stSidebar"] > div[data-testid="stSidebarContent"] {
     border: 1px solid #1d2838;
     box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
-[data-testid="stSidebarHeader"] { height: 2.4rem; padding: 0.6rem 0.9rem 0; }
+[data-testid="stSidebarHeader"] { height: 0; min-height: 0; padding: 0; overflow: hidden; }  /* collapse button is hidden: no empty strip above the brand */
 [data-testid="stSidebarUserContent"] { padding: 0 12px 18px 12px; }
 .sidebar-brand {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 0 4px 14px 4px;
+    padding: 0 4px 16px 4px;  /* Streamlit adds ~17px above; 16px below = brand centred between the panel top and its divider */
     margin-bottom: 6px;
     border-bottom: 1px solid #1d2838;
 }
@@ -569,6 +581,22 @@ section[data-testid="stSidebar"] > div[data-testid="stSidebarContent"] {
 .sidebar-brand-name { font-size: 18px; font-weight: 900; letter-spacing: 0.02em; color: #e7ecf3; line-height: 1.25;
     margin-bottom: 6px; }  /* a little air above 表型分級系統 */
 .sidebar-brand-sub { font-size: 13px; font-weight: 700; color: #7c8ba3; line-height: 1.3; }
+/* top-right 中文/EN + 外觀: the CSS-only markdown takes no slot in the row; both controls the same height */
+.st-key-top_controls [data-testid="stElementContainer"]:has(style) { display: none; }
+[data-testid="stAppDeployButton"] { display: none; }
+/* 比例尺校正: the point picker draws its 520 px photo at the left of a full-width frame; size the frame to the
+   photo so the centred container centres the photo in its card */
+[class*="st-key-calib_picker"] [data-testid="stElementContainer"]:has(iframe) { width: 520px !important; max-width: 100%; }  /* Streamlit's Deploy button (the ⋮ menu stays) */
+.st-key-top_controls { padding-right: 104px; }  /* clear of Streamlit's Deploy / ⋮ toolbar in the corner */
+.st-key-top_controls [data-testid="stButtonGroup"] button,
+.st-key-top_controls [data-testid="stPopover"] button { height: 40px; min-height: 40px; box-sizing: border-box; }
+.st-key-top_controls [data-testid="stPopover"] button { padding: 0 18px; }
+.st-key-top_controls [data-testid="stPopover"] button p { font-weight: 700; }  /* bold like 中文 / EN */
+.st-key-sidebar_breed {padding: 0 6px 12px; margin-bottom: 4px; border-bottom: 1px solid #1d2838; gap: 0.5rem; }
+.st-key-sidebar_breed label p { font-size: 12px; font-weight: 700; color: #7c8ba3; }
+.breed-context { font-size: 0.95rem; color: #9fb0c8; margin: 0 0 0.45rem; }
+.breed-context b { color: inherit; font-weight: 800; }
+.breed-stats { margin: 0.2rem 0 0.4rem; }
 .sidebar-foot {
     margin-top: 10px;
     padding: 14px 6px 2px;
@@ -989,7 +1017,7 @@ input[placeholder="C001"] {
 /* ---------- units shown inside number boxes (after the number, before the − + buttons) ---------- */
 [data-testid="stNumberInputContainer"] > div { order: 3; }
 [data-testid="stNumberInputContainer"]::after { order: 2; align-self: center; padding: 0 10px 0 4px; color: var(--muted);
-    font-size: .95rem; font-weight: 600; white-space: nowrap; pointer-events: none; }
+    font-size: 1.9rem; line-height: 1; font-weight: 600; white-space: nowrap; pointer-events: none; }
 [data-testid="stNumberInputContainer"]:has(input[aria-label$="(g)"])::after,
 .st-key-weight_g_pass_threshold [data-testid="stNumberInputContainer"]::after,
 .st-key-weight_g_standby_threshold [data-testid="stNumberInputContainer"]::after { content: "g"; }
@@ -1194,12 +1222,17 @@ def page_heading(title: str, description: str = "") -> None:
 
 
 DISPLAY_VALUE_COLUMNS = ("grade_result", "分級結果", "狀態", "初步分級")
+DATA_TABLE_COLUMNS = {  # database field → column title (Chinese source; English via the locale)
+    "chicken_id": "chicken ID", "breed": "品系", "weight_g": "體重 (g)", "comb_area_cm2": "雞冠面積 (cm²)",
+    "shank_width_cm": "腳脛寬度 (cm)", "shank_length_cm": "腳脛長度 (cm)", "selected_features": "納入特徵",
+    "created_at": "建立時間", "updated_at": "更新時間", "graded_at": "分級時間", "final_scanned_at": "最終掃描時間",
+}
 
 
 def display_frame(df: pd.DataFrame) -> pd.DataFrame:
-    """Translate grade/status values and column names for display only (no-op in 中文)."""
+    """Translate grade/status values (English) and column names (both languages) for display only."""
     if not i18n.is_english():
-        return df
+        return i18n.t_columns(df)
     df = df.copy()
     for column in DISPLAY_VALUE_COLUMNS:
         if column in df.columns:
@@ -1208,7 +1241,14 @@ def display_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def show_data_table(height: int | None = None, rows: list[dict] | None = None) -> None:
-    df = get_all_chickens_df(rows).rename(columns={"chicken_id": "chicken ID"})
+    df = get_all_chickens_df(rows)
+    if "selected_features" in df.columns:  # comb_area_cm2,weight_g → 雞冠面積、體重
+        df["selected_features"] = df["selected_features"].map(
+            lambda value: "、".join(t(FEATURE_COLUMNS.get(f, f)) for f in str(value).split(",") if f)
+            if isinstance(value, str) else value)
+    df = df.rename(columns=DATA_TABLE_COLUMNS)
+    for column in df.select_dtypes(exclude="number").columns:  # empty text cells: "-" (not "None")
+        df[column] = df[column].where(df[column].notna(), "-")
     if "grade_result" in df.columns:
         # 通過 / 備用 / 不通過 right after chicken ID, coloured like the lights; the light column (GREEN / YELLOW /
         # RED) says the same thing, so it is not shown.
@@ -1347,7 +1387,13 @@ FEATURE_UNITS = {"weight_g": "g", "comb_area_cm2": "cm²", "shank_width_cm": "cm
 def feature_selector() -> dict[str, bool]:
     """Checkboxes: which features take part in grading. Starts from the saved thresholds (a feature is
     ticked when it was in use), or all ticked when nothing has been saved yet."""
-    config = get_latest_grading_config()
+    breed = get_current_breed()
+    if st.session_state.get("grading_form_breed") != breed:  # breed switched: reload that breed's saved values
+        for feature in FEATURE_COLUMNS:
+            for key in (f"{feature}_pass_threshold", f"{feature}_standby_threshold", f"use_feature_{feature}"):
+                st.session_state.pop(key, None)
+        st.session_state.grading_form_breed = breed
+    config = get_latest_grading_config(breed)
     in_use = set(active_features(*config)) if config else set(FEATURE_COLUMNS)
     if config:  # threshold inputs start from the saved values (not 0)
         _, saved_pass, saved_standby = config
@@ -1365,7 +1411,10 @@ def feature_selector() -> dict[str, bool]:
 
 
 def render_current_thresholds() -> None:
-    config = get_latest_grading_config()
+    breed = get_current_breed()
+    st.markdown(f'<div class="breed-context">{t("目前品系")}：<b>{html_escape(breed)}</b></div>',
+                unsafe_allow_html=True)
+    config = get_latest_grading_config(breed)
     if not config:
         st.info(t("尚未設定分級門檻"))
         return
@@ -1433,7 +1482,7 @@ def hardware_settings_page() -> None:
             if ports:
                 default_index = preferred_port_index(port_labels, default_port, is_arduino_port_label)
                 selected_label = st.selectbox(
-                    "Arduino serial port",
+                    t("Arduino serial port"),
                     port_labels,
                     index=default_index,
                     key="hardware_arduino_serial_label",
@@ -1441,7 +1490,7 @@ def hardware_settings_page() -> None:
                 arduino_port = port_devices[selected_label]
             else:
                 arduino_port = st.text_input(
-                    "Arduino serial port",
+                    t("Arduino serial port"),
                     value=default_port,
                     placeholder=t("例如 COM5 或 /dev/ttyACM0"),
                     key="hardware_arduino_serial_port_input",
@@ -1657,10 +1706,72 @@ def phenotype_entry_page() -> None:
     from dual_camera_ui import phenotype_page
     phenotype_page(globals())
 
+ALL_BREEDS = "全部品系"
+STAT_TONES = {"weight_g": "weight", "comb_area_cm2": "comb", "shank_width_cm": "shank", "shank_length_cm": "shank"}
+
+
+def threshold_history_table(breed: str) -> None:
+    history = breed_threshold_history(breed)
+    if not history:
+        st.info(t("此品系尚無門檻紀錄"))
+        return
+    rows = []
+    for record in history:
+        features = [f for f in str(record["selected_features"] or "").split(",") if f]
+        row = {t("設定時間"): record["saved_at"],
+               t("納入特徵"): "、".join(t(FEATURE_COLUMNS.get(f, f)) for f in features)}
+        for feature, prefix in (("weight", "體重"), ("comb_area", "雞冠面積"), ("shank_width", "腳脛寬度"),
+                                ("shank_length", "腳脛長度")):
+            pass_value, standby_value = record[f"{feature}_threshold"], record[f"{feature}_standby_threshold"]
+            row[t(prefix)] = (f"{number_input_value(pass_value):.2f} / {number_input_value(standby_value):.2f}"
+                              if pass_value or standby_value else "-")
+        row[t("分級筆數")] = record["graded_count"] if record["graded_count"] is not None else "-"
+        rows.append(row)
+    st.caption(t("各特徵顯示「通過 / 備用」門檻"))
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+
+
+def breed_stats_cards(view_breed: str | None) -> None:
+    """Measured statistics of the viewed breed, as rolling-number cards (same motion as the result cards)."""
+    stats = breed_stats(view_breed)
+    metrics = []
+    for column, tone in STAT_TONES.items():
+        mean = stats["features"][column]["mean"]
+        label = f"{t('平均')}{t(FEATURE_COLUMNS[column])} ({FEATURE_UNITS[column]})"
+        metrics.append((label, f"{mean:.2f}" if mean is not None else "-", tone))
+    # The breed in the class makes the HTML differ per breed, so the digits roll again on every switch.
+    breed_class = "breed-" + hashlib.md5(str(view_breed).encode("utf-8")).hexdigest()[:8]
+    st.markdown(ui_style.metric_cards_html(metrics, extra_class=f"breed-stats {breed_class}"), unsafe_allow_html=True)
+    details = []
+    for column in STAT_TONES:
+        item = stats["features"][column]
+        if item["n"]:
+            details.append(t("{feature}：{n} 筆、標準差 {std}、範圍 {low}–{high}", feature=t(FEATURE_COLUMNS[column]),
+                             n=item["n"], std=f"{item['std']:.2f}", low=f"{item['min']:.2f}",
+                             high=f"{item['max']:.2f}"))
+    grades = stats["grades"]
+    if grades:
+        details.append("、".join(f"{t(grade)} {count}" for grade, count in grades.items()))
+    if details:
+        st.caption("　｜　".join(details))
+
+
 def data_management_page() -> None:
     page_heading("雞隻資料管理", "集中檢視所有表型資料；新增、修改與刪除操作收納於下方。")
 
-    chickens = get_all_chickens()
+    # View-only breed filter for this page (does not change the current breed used for grading/new chickens).
+    breeds = list_breeds()
+    current_breed = get_current_breed()
+    view_options = breeds + [ALL_BREEDS]
+    if st.session_state.get("data_view_breed") not in view_options:
+        st.session_state.data_view_breed = current_breed
+    view_col, _ = st.columns([1, 3])
+    view_choice = view_col.selectbox(t("檢視品系"), view_options, key="data_view_breed",
+                                     format_func=lambda name: t(name) if name == ALL_BREEDS else name)
+    view_breed = None if view_choice == ALL_BREEDS else view_choice
+    breed_stats_cards(view_breed)
+
+    chickens = get_all_chickens(view_breed)
     toolbar = st.container(key="data_toolbar")
     if ui_style.SHOW_DEMO_TOOLS:
         total_col, sample_col, import_col, export_col = toolbar.columns([0.8, 1, 1.25, 1], vertical_alignment="center")
@@ -1703,8 +1814,9 @@ def data_management_page() -> None:
 
     with st.expander(t("新增雞隻"), expanded=False):
         with st.form("add_chicken_form", clear_on_submit=True):
-            col1, col2, col3, col4, col5 = st.columns(5)
-            chicken_id = col1.text_input("chicken ID", placeholder="C001")
+            breed_col, col1, col2, col3, col4, col5 = st.columns(6)
+            new_breed = breed_col.selectbox(t("品系"), breeds, index=breeds.index(current_breed))
+            chicken_id = col1.text_input(t("chicken ID"), placeholder="C001")
             weight_g = col2.number_input(t("體重 (g)"), min_value=0.0, step=10.0)
             comb_area_cm2 = col3.number_input(t("雞冠面積 (cm²)"), min_value=0.0, value=0.0, step=0.5)
             shank_width_cm = col4.number_input(t("腳脛寬度 (cm)"), min_value=0.0, value=0.0, step=0.1)
@@ -1712,7 +1824,7 @@ def data_management_page() -> None:
             submitted = st.form_submit_button(t("新增資料"), width="stretch")
             if submitted:
                 try:
-                    add_chicken(chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm)
+                    add_chicken(chicken_id, weight_g, comb_area_cm2, shank_width_cm, shank_length_cm, breed=new_breed)
                     st.success(t("已新增雞隻：{chicken_id}", chicken_id=chicken_id))
                     st.rerun()
                 except Exception as exc:
@@ -1725,7 +1837,10 @@ def data_management_page() -> None:
             selected = get_chicken(selected_id)
             if selected:
                 with st.form("edit_chicken_form"):
-                    col1, col2, col3, col4 = st.columns(4)
+                    breed_col, col1, col2, col3, col4 = st.columns(5)
+                    own_breed = selected.get("breed") or current_breed
+                    edit_breed = breed_col.selectbox(t("品系"), breeds,
+                                                     index=breeds.index(own_breed) if own_breed in breeds else 0)
                     edit_weight = col1.number_input(t("體重 (g)"), value=number_input_value(selected["weight_g"]), step=10.0)
                     edit_comb = col2.number_input(t("雞冠面積 (cm²)"), value=number_input_value(selected["comb_area_cm2"]), step=0.5)
                     edit_shank = col3.number_input(
@@ -1742,7 +1857,8 @@ def data_management_page() -> None:
                     save = save_col.form_submit_button(t("儲存修改"), width="stretch")
                     remove = delete_col.form_submit_button(t("刪除此雞隻"), width="stretch")
                     if save:
-                        update_chicken(selected_id, edit_weight, edit_comb, edit_shank, edit_shank_length)
+                        update_chicken(selected_id, edit_weight, edit_comb, edit_shank, edit_shank_length,
+                                       breed=edit_breed)
                         st.success(t("已更新雞隻：{chicken_id}", chicken_id=selected_id))
                         st.rerun()
                     if remove:
@@ -1806,9 +1922,11 @@ def grading_page() -> None:
                                        feature=t(FEATURE_COLUMNS[feature])))
             validate_grading_config(selected_features, pass_thresholds, standby_thresholds)
             enabled_features = active_features(selected_features, pass_thresholds, standby_thresholds)
-            # Config validated once above; grade every chicken, then write all results in one transaction.
+            # Config validated once above; grade every chicken of the current breed, then write all results
+            # in one transaction and append the thresholds to the breed's history.
+            breed = get_current_breed()
             rows = []
-            for chicken in get_all_chickens():
+            for chicken in get_all_chickens(breed):
                 grade_result, light_result, below_pass_features, below_standby_features = grade_details(
                     chicken, enabled_features, pass_thresholds, standby_thresholds
                 )
@@ -1825,6 +1943,7 @@ def grading_page() -> None:
                 [(row["chicken ID"], row["grade_result"], row["light_result"]) for row in rows],
                 selected_features, pass_thresholds, standby_thresholds,
             )
+            save_breed_thresholds(breed, selected_features, pass_thresholds, standby_thresholds, graded_count=len(rows))
             st.success(t("分級完成，已更新資料庫。"))
             summary = summarize_results(rows)
             metric_cols = st.container(key="grading_summary").columns(7)
@@ -1853,7 +1972,9 @@ def grading_page() -> None:
             st.error(str(exc))
 
     with st.expander(t("查看目前雞隻資料"), expanded=False):
-        show_data_table(height=320)
+        show_data_table(height=320, rows=get_all_chickens(get_current_breed()))
+    with st.expander(t("門檻設定紀錄"), expanded=False):
+        threshold_history_table(get_current_breed())
     with thresholds_slot:
         render_current_thresholds()
 
@@ -1881,11 +2002,15 @@ def execute_final_light_decision(query_id: str) -> bool:
     if not chicken:
         st.warning(t("找不到此 chicken ID。"))
         return False
+    mismatch = breed_mismatch_message(query_id)
+    if mismatch:  # only chickens of the current breed are judged here
+        st.warning(mismatch)
+        return False
     try:
         grade_result, _ = grade_and_store_with_latest_config(chicken)
         if grade_result is None:
-            st.warning(t("目前資料庫沒有已儲存的分級門檻，請先在「分級門檻設定」執行一次分級。"))
-            grade_result = chicken["grade_result"]
+            st.warning(t("目前品系尚未設定分級門檻，請先在「分級門檻設定」執行一次分級。"))
+            return False
     except Exception as exc:
         st.error(t("最終篩選失敗：{error}", error=exc))
         return False
@@ -1917,13 +2042,14 @@ def final_scan_page() -> None:
     if not query_id:
         st.session_state.final_scan_last_processed_token = ""
         last_id = st.session_state.get("final_scan_last_completed_id")
-        if last_id:
+        if last_id and not breed_mismatch_message(last_id):  # not after switching to another breed
             chicken = get_chicken(last_id)
             if chicken:
                 render_light(chicken.get("grade_result"))
         return
 
-    final_scan_token = f"{query_id}|{repr(get_latest_grading_config())}"
+    scanned_breed = (get_chicken(query_id) or {}).get("breed")
+    final_scan_token = f"{query_id}|{get_current_breed()}|{repr(get_latest_grading_config(scanned_breed))}"
     if st.session_state.get("final_scan_last_processed_token") != final_scan_token:
         if execute_final_light_decision(query_id):
             mark_final_scanned(query_id)
@@ -1976,11 +2102,90 @@ def nav_icon_css(page_names) -> str:
     return "<style>" + "\n".join(rules) + "</style>"
 
 
+ZH_UPLOADER_CSS = """<style>
+[data-testid="stFileUploaderDropzone"] button [data-testid="stMarkdownContainer"] p { font-size: 0; }
+[data-testid="stFileUploaderDropzone"] button [data-testid="stMarkdownContainer"] p::after { content: "上傳"; font-size: 14px; }
+[data-testid="stFileUploaderDropzoneInstructions"] span { font-size: 0; }
+[data-testid="stFileUploaderDropzoneInstructions"] span::after { content: "單檔上限 200MB"; font-size: 12px; }
+</style>"""
+
+ADD_BREED_OPTION = "＋ 新增品系"
+DELETE_BREED_OPTION = "－ 刪除品系"
+BREED_ACTIONS = (ADD_BREED_OPTION, DELETE_BREED_OPTION)
+
+
+def _on_breed_change() -> None:
+    choice = st.session_state.get("current_breed_select")
+    if choice and choice not in BREED_ACTIONS:
+        set_current_breed(choice)
+
+
+def _on_breed_delete() -> None:
+    name = st.session_state.get("delete_breed_name")
+    try:
+        deleted = delete_breed(name)
+    except ValueError as exc:
+        st.session_state.breed_add_error = str(exc)
+        return
+    st.session_state.current_breed_select = get_current_breed()
+    st.session_state.pop(f"delete_breed_confirm_{name}", None)
+    st.session_state.breed_flash = t("已刪除品系：{breed}（含 {count} 筆雞隻資料）", breed=name, count=deleted)
+
+
+def _on_breed_add() -> None:
+    try:
+        name = add_breed(st.session_state.get("new_breed_name", ""))
+    except ValueError as exc:
+        st.session_state.breed_add_error = str(exc)
+        return
+    set_current_breed(name)
+    st.session_state.current_breed_select = name
+    st.session_state.new_breed_name = ""
+    st.session_state.pop("breed_add_error", None)
+
+
+def breed_selector() -> None:
+    """Sidebar: the current breed (new chickens are recorded under it and graded with its thresholds)."""
+    breeds = list_breeds()
+    current = get_current_breed()
+    options = breeds + list(BREED_ACTIONS)
+    if st.session_state.get("current_breed_select") not in options:
+        st.session_state.current_breed_select = current
+    with st.container(key="sidebar_breed"):
+        choice = st.selectbox(t("目前品系"), options, key="current_breed_select", on_change=_on_breed_change,
+                              format_func=lambda name: t(name) if name in BREED_ACTIONS else name)
+        if choice == ADD_BREED_OPTION:
+            with st.form("add_breed_form", border=False):  # Enter or the button submits the typed name
+                st.text_input(t("新品系名稱"), key="new_breed_name", placeholder=t("例如：黑羽土雞"))
+                st.form_submit_button(t("新增品系"), on_click=_on_breed_add, width="stretch")
+        elif choice == DELETE_BREED_OPTION:
+            target = st.selectbox(t("要刪除的品系"), breeds, key="delete_breed_name")
+            count = breed_chicken_count(target)
+            confirmed = False
+            if len(breeds) <= 1:
+                st.caption(t("至少需保留一個品系"))
+            else:
+                if count:
+                    st.warning(t("將一併刪除此品系的 {count} 筆雞隻資料，無法復原", count=count))
+                st.caption(t("門檻紀錄會保留；之後新增同名品系即可恢復"))
+                confirmed = st.checkbox(t("我確定要刪除「{breed}」", breed=target), key=f"delete_breed_confirm_{target}")
+            st.button(t("確認刪除品系"), key="delete_breed_button", on_click=_on_breed_delete, width="stretch",
+                      disabled=not confirmed)
+        error = st.session_state.pop("breed_add_error", None)
+        if error:
+            st.error(error)
+        flash = st.session_state.pop("breed_flash", None)
+        if flash:
+            st.success(flash)
+
+
 def main() -> None:
-    _, language_column, appearance_column = st.columns([7, 1.1, 1], vertical_alignment="center")
-    with language_column:
+    if not i18n.is_english():  # Streamlit's own file-uploader text is English: show it in Chinese
+        st.markdown(ZH_UPLOADER_CSS, unsafe_allow_html=True)
+    # 中文/EN and 外觀 side by side in one right-aligned row: same height, small gap.
+    with st.container(key="top_controls", horizontal=True, horizontal_alignment="right",
+                      vertical_alignment="center", gap="small"):
         ui_style.language_switch()
-    with appearance_column:
         ui_style.controls()
 
     from product_review_ui import model_maintenance_page, quality_dashboard_page, review_cases_page
@@ -2018,6 +2223,7 @@ def main() -> None:
             """,
             unsafe_allow_html=True,
         )
+        breed_selector()
         st.markdown(nav_icon_css(page_names), unsafe_allow_html=True)
         selected_page = st.segmented_control(
             t("功能選擇"),

@@ -49,10 +49,18 @@ def _model_rows() -> list[dict[str, object]]:
     for role, path in MODEL_PATHS.items():
         if path.is_file():
             digest = secure_sync.file_hash12(path)  # cached per file version (comb model is >100 MB)
-            rows.append({"模型": role.upper(), "檔案": path.name, "版本雜湊": digest, "大小 (MB)": f"{path.stat().st_size / 1024 / 1024:.2f}", "狀態": t("已載入")})
+            rows.append({"模型": _role_name(role), "檔案": path.name, "版本雜湊": digest, "大小 (MB)": f"{path.stat().st_size / 1024 / 1024:.2f}", "狀態": t("已載入")})
         else:
-            rows.append({"模型": role.upper(), "檔案": path.name, "版本雜湊": "-", "大小 (MB)": "-", "狀態": t("缺少檔案")})
+            rows.append({"模型": _role_name(role), "檔案": path.name, "版本雜湊": "-", "大小 (MB)": "-", "狀態": t("缺少檔案")})
     return t_records(rows)
+
+
+ROLE_NAMES = {"comb": "雞冠", "shank": "腳脛"}
+
+
+def _role_name(role) -> str:
+    """Display name of a model / image role ('comb' or 'COMB' → 雞冠)."""
+    return t(ROLE_NAMES.get(str(role).lower(), str(role)))
 
 
 def _t_reason(reason) -> str:
@@ -66,6 +74,8 @@ def _t_reason(reason) -> str:
         except ValueError:
             pass
         return t("最低信心 {value}", value=value)
+    if text.startswith("兩腳差異 "):
+        return t("兩腳差異 {value}", value=text[len("兩腳差異 "):])
     return t(text)
 
 
@@ -146,7 +156,7 @@ def _undo_last_review() -> None:
         t(
             "上一張：{chicken_id} · {role} → 判定為「{decision}」。選錯了可以復原。",
             chicken_id=last["chicken_id"],
-            role=str(last["role"]).upper(),
+            role=_role_name(last["role"]),
             decision=t(last["decision"]),
         )
     )
@@ -158,7 +168,7 @@ def _undo_last_review() -> None:
             t(
                 "已復原：{chicken_id} · {role} 回到待審核，請重新判定。",
                 chicken_id=last["chicken_id"],
-                role=str(last["role"]).upper(),
+                role=_role_name(last["role"]),
             ),
         )
         st.rerun()
@@ -186,13 +196,13 @@ def _revise_decision(case: dict[str, object], role: str) -> None:
                     message = t(
                         "{chicken_id} · {role} 已退回待審核，可在「待審核」重新判定。",
                         chicken_id=case["chicken_id"],
-                        role=role.upper(),
+                        role=_role_name(role),
                     )
                 else:
                     message = t(
                         "{chicken_id} · {role} 已由「{current}」改為「{choice}」。",
                         chicken_id=case["chicken_id"],
-                        role=role.upper(),
+                        role=_role_name(role),
                         current=t(current),
                         choice=t(choice),
                     )
@@ -210,8 +220,8 @@ def _pending_review() -> None:
     case, role = items[0]
     confidence = case["role_confidences"].get(role)
     info_columns = st.columns(4)
-    info_columns[0].metric("Chicken ID", case["chicken_id"])
-    info_columns[1].metric(t("影像類型"), role.upper())
+    info_columns[0].metric(t("chicken ID"), case["chicken_id"])
+    info_columns[1].metric(t("影像類型"), _role_name(role))
     info_columns[2].metric(t("信心"), "-" if confidence is None else f"{float(confidence):.2f}")
     info_columns[3].metric(t("剩餘待審核"), len(items))
 
@@ -269,7 +279,7 @@ def _review_gallery(status: str, role: str) -> None:
         t(
             "共 {count} 張",
             count=len(items),
-            role=role.upper(),
+            role=_role_name(role),
             page_size=GALLERY_PAGE_SIZE,
         )
     )
@@ -286,7 +296,7 @@ def _review_gallery(status: str, role: str) -> None:
                     st.warning(t("影像不存在"))
                 confidence = case["role_confidences"].get(role)
                 role_state = case[f"{role}_review_state"]
-                st.markdown(f"**{role.upper()} · {case['chicken_id']}**")
+                st.markdown(f"**{_role_name(role)} · {case['chicken_id']}**")
                 st.markdown(t("**判定：{state}**", state=t(role_state)))
                 st.write(t("信心：{value}", value="-" if confidence is None else f"{float(confidence):.2f}"))
                 st.caption(_t_reason(case["reason"]))
@@ -318,7 +328,7 @@ def review_cases_page(page_heading) -> None:
         role_key = f"review_gallery_role_{status}"
         role_label = st.segmented_control(
             t("影像類型"),
-            ["COMB", "SHANK"],
+            ["COMB", "SHANK"], format_func=_role_name,
             default="COMB",
             key=role_key,
             on_change=_keep_selection,
@@ -596,7 +606,7 @@ def _model_versions_panel() -> None:
         in_use = model_registry.active_path(role)
         for version in model_registry.list_versions(role):
             rows.append({
-                "模型": role.upper(),
+                "模型": _role_name(role),
                 "檔案": version.path.name,
                 "雞舍": version.farm,
                 "更新日期": version.updated_text,
@@ -618,7 +628,7 @@ def _model_versions_panel() -> None:
             options = [model_registry.AUTO] + [v.path.name for v in versions]
             current = model_registry.selection(role)
             choice = st.selectbox(
-                role.upper(),
+                _role_name(role),
                 options,
                 index=options.index(current) if current in options else 0,
                 format_func=lambda name: t("自動（最新日期）") if name == model_registry.AUTO else name,
@@ -626,7 +636,7 @@ def _model_versions_panel() -> None:
             )
             if choice != current:
                 model_registry.set_active(role, choice)
-                _model_flash("success", t("{role} 模型已切換為 {name}", role=role.upper(),
+                _model_flash("success", t("{role} 模型已切換為 {name}", role=_role_name(role),
                                     name=model_registry.active_path(role).name))
                 st.rerun()
         originals = [role for role in REVIEW_ROLES
@@ -648,7 +658,7 @@ def _model_versions_panel() -> None:
     with import_column, st.container(border=True, key="card_model_import"):
         st.subheader(t("匯入新模型"))
         with st.form("model_import_form", clear_on_submit=True, border=False):  # no second frame inside the card
-            role = st.segmented_control(t("模型"), ["COMB", "SHANK"], default="COMB", key="model_import_role")
+            role = st.segmented_control(t("模型"), ["COMB", "SHANK"], format_func=_role_name, default="COMB", key="model_import_role")
             uploaded = st.file_uploader(t("模型檔 (.pt)"), type=["pt"], key="model_import_file")
             farm_column, date_column = st.columns(2)
             farm = farm_column.text_input(t("雞舍名稱"), value=_default_farm_name())

@@ -84,6 +84,47 @@ def is_english() -> bool:
     return current_language() == LANG_EN
 
 
+# 中文 mode only: the source strings still carry some English terms (kept as the keys of the English locale);
+# shown in Chinese they are replaced by these Chinese terms, applied in order (longest first).
+ZH_TERMS = (
+    ("USB 掃描槍掃描 / 手動輸入 chicken ID", "掃描槍掃描／手動輸入雞隻編號"),
+    ("YOLO confidence 門檻", "辨識信心門檻"),
+    ("YOLO推論影格", "推論影格"),
+    ("正在推論 {role} 單張照片", "正在推論{role}照片"),
+    ("無法儲存 {role} 照片", "無法儲存{role}照片"),
+    ("COMB 與 SHANK", "雞冠與腳脛"),
+    ("Comb 與 Shank", "雞冠與腳脛"),
+    ("Comb 雞冠 ", "雞冠"), ("Shank 腳脛 ", "腳脛"), ("Comb 雞冠", "雞冠"), ("Shank 腳脛", "腳脛"),
+    (" camera ID", "相機編號"), ("相機 ID", "相機編號"), ("camera ID", "相機編號"),
+    (" cm/pixel", "比例 (cm/像素)"), ("cm/pixel", "比例 (cm/像素)"),
+    ("啟用 Arduino 實體燈號", "啟用實體燈號"),
+    ("燈號 COM", "燈號控制器"),
+    ("Arduino serial port", "燈號控制器連接埠"),
+    ("Arduino ", "燈號控制器"), (" Arduino", "燈號控制器"), ("Arduino", "燈號控制器"),
+    (" serial port", "連接埠"), ("serial port", "連接埠"),
+    ("**Chicken ID：", "**雞隻編號："),
+    (" chicken ID ", "雞隻編號 "), (" chicken ID", "雞隻編號"), ("chicken ID ", "雞隻編號 "),
+    ("chicken ID", "雞隻編號"), ("Chicken ID", "雞隻編號"),
+    ("USB 掃描槍", "掃描槍"),
+)
+
+
+def zh_display(text: str) -> str:
+    """Chinese-mode wording: English terms in a Chinese source string → Chinese."""
+    if not text or not any(c.isascii() and c.isalpha() for c in text):
+        return text
+    for english, chinese in ZH_TERMS:
+        if english in text:
+            text = text.replace(english, chinese)
+    # {label} / {role} become Chinese names: no spaces between them and Chinese text ("上傳 {label} 照片").
+    text = _ZH_PLACEHOLDER_SPACE_BEFORE.sub("", text)
+    return _ZH_PLACEHOLDER_SPACE_AFTER.sub(r"\1", text)
+
+
+_ZH_PLACEHOLDER_SPACE_BEFORE = re.compile(r"(?<=[一-鿿]) (?=\{(?:label|role)\})")
+_ZH_PLACEHOLDER_SPACE_AFTER = re.compile(r"(\{(?:label|role)\}) (?=[一-鿿])")
+
+
 def t(text, **values) -> str:
     """Translate one UI string (Chinese source text) into the current language."""
     if text is None:
@@ -96,6 +137,8 @@ def t(text, **values) -> str:
             result = english
         elif _CJK.search(source):
             _MISSING.add(source)
+    elif source:
+        result = zh_display(source)
     if values:
         try:
             return result.format(**values)
@@ -106,15 +149,11 @@ def t(text, **values) -> str:
 
 def t_columns(frame):
     """Translate DataFrame column names (and nothing else) for display."""
-    if not is_english():
-        return frame
     return frame.rename(columns={column: t(column) for column in frame.columns})
 
 
 def t_records(rows):
     """Translate the keys of a list of dict rows (for st.dataframe on lists of dicts)."""
-    if not is_english():
-        return rows
     return [{t(key): value for key, value in row.items()} for row in rows]
 
 
