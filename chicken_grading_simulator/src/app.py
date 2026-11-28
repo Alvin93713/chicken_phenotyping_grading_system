@@ -1010,12 +1010,18 @@ input[placeholder="C001"] {
 .st-key-adjust_previews .st-key-dual_preview_comb img,
 .st-key-adjust_previews .st-key-dual_preview_shank img { max-height: 45vh; }  /* 相機調整: 1.5× the usual 30vh */
 /* 靜態 results: the image slot keeps one height whether the photo is there yet or not (no jump) */
-.st-key-snapshot_result_images [data-testid="stImage"] img { height: 19.5vh; width: 100%; }
+/* The small-slot sizes apply only while the photo is NOT full screen (the expanded element carries
+   Streamlit's 「Close fullscreen」 button); full screen the photo fills the screen. */
+.st-key-snapshot_result_images [data-testid="stElementContainer"]:not(:has([aria-label="Close fullscreen"])) [data-testid="stImage"] img {
+    height: 19.5vh; max-height: 19.5vh; width: 100%; }
 .result-image-slot { height: 19.5vh; border-radius: 10px; background: rgba(127, 127, 127, 0.08); }
 .result-image-caption { text-align: center; font-size: 14px; opacity: 0.6; padding-top: 4px; }
-.st-key-snapshot_result_images [data-testid="stColumn"] { height: calc(19.5vh + 34px); overflow: hidden; }  /* photo + caption, same with or without the photo */
+.st-key-snapshot_result_images [data-testid="stColumn"]:not(:has([aria-label="Close fullscreen"])) {
+    height: calc(19.5vh + 34px); overflow: hidden; }  /* photo + caption, same with or without the photo */
+.st-key-snapshot_result_images [aria-label="Close fullscreen"] ~ * img,
+.st-key-snapshot_result_images [data-testid="stElementContainer"]:has([aria-label="Close fullscreen"]) img {
+    height: auto; max-height: 92vh; width: auto; max-width: 100%; margin: 0 auto; }  /* full screen */
 .st-key-snapshot_result_images img {
-    max-height: 19.5vh;
     cursor: zoom-in;  /* click = full screen (ui_style.IMAGE_ZOOM_HTML) */
     object-fit: contain;
     background: #000;
