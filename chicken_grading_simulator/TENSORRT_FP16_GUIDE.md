@@ -49,6 +49,14 @@ python scripts/check_ubuntu_runtime.py
 
 ## 4. Build FP16 TensorRT engines on the Orin
 
+The application now does this by itself (`src/engine_builder.py`): on an Orin with TensorRT and CUDA it checks
+the models in use at start-up, right after a model is imported or another version is chosen on
+模型維護與更新, and every minute (git pull, copied files). A model without an up-to-date engine is exported in
+a temporary folder with the settings below, loaded and run once, and only then placed next to the `.pt`; until
+then, and when a build fails, the `.pt` is used. Progress and failures (with a retry button) are shown on
+模型維護與更新. Turn it off with `CHICKEN_AUTO_BUILD_ENGINE=0`. A separate build-after-pull script is no longer
+needed. The manual commands below remain for reference.
+
 TensorRT engines are tied to the target GPU and TensorRT version. Always build
 them on the Orin that will run the grading system. Do not commit `.engine`
 files to Git.

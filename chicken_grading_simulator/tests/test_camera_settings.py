@@ -1,5 +1,6 @@
 import os as _preload_os
 _preload_os.environ["CHICKEN_PRELOAD_MODELS"] = "0"  # tests never load the real models
+_preload_os.environ["CHICKEN_AUTO_BUILD_ENGINE"] = "0"  # … nor build TensorRT engines
 import os as _os
 _os.environ["CHICKEN_SYNC_DISABLE_WORKER"] = "1"
 _os.environ["CHICKEN_UI_PREFS_PATH"] = _os.devnull

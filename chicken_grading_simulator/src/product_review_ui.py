@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import base64
 import mimetypes
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
+import engine_builder
 import model_registry
 from dual_camera import MODEL_PATHS, runtime_status
 from i18n import t, t_records
@@ -636,6 +637,7 @@ def _model_versions_panel() -> None:
             )
             if choice != current:
                 model_registry.set_active(role, choice)
+                engine_builder.request_check()  # the chosen version may still need its TensorRT engine
                 _model_flash("success", t("{role} 模型已切換為 {name}", role=_role_name(role),
                                     name=model_registry.active_path(role).name))
                 st.rerun()
@@ -644,6 +646,7 @@ def _model_versions_panel() -> None:
             text = t("{role} 執行格式：{runtime}（{file}）", role=_role_name(role), runtime=status["runtime"],
                      file=Path(status["path"]).name)
             st.caption(text + (f"　{t(status['reason'])}" if status["reason"] else ""))
+            _engine_build_status(role)
         originals = [role for role in REVIEW_ROLES
                      if model_registry.LEGACY_PATHS[role].is_file()
                      and all(v.legacy for v in model_registry.list_versions(role))]
@@ -679,11 +682,27 @@ def _model_versions_panel() -> None:
                     with st.spinner(t("驗證並儲存模型中…")):
                         path = model_registry.import_model(role.lower(), uploaded.getvalue(), farm, updated,
                                                            _validate_model)
+                    engine_builder.request_check()  # convert the new model to TensorRT in the background
                     _model_flash("success", t("已匯入 {name}", name=path.name))
                     st.rerun()
                 except Exception as exc:
                     st.error(t("匯入失敗：{error}", error=exc))
         st.caption(t("檔名：`best_<模型>_<雞舍名稱>_<日期>.pt`；舊版本保留，可隨時切回。"))
+
+
+def _engine_build_status(role: str) -> None:
+    """Automatic TensorRT conversion of this model (shown only while building or after a failure)."""
+    build = engine_builder.status.get(role) or {}
+    if build.get("state") == "building":
+        started = datetime.fromtimestamp(build["since"]).strftime("%H:%M")
+        st.info(t("{role}：正在把 {model} 轉換成 TensorRT（{time} 開始，約需數分鐘；完成前使用 PT）",
+                  role=_role_name(role), model=build["model"], time=started))
+    elif build.get("state") == "failed":
+        st.warning(t("{role}：{model} 轉換 TensorRT 失敗，繼續使用 PT。原因：{error}",
+                     role=_role_name(role), model=build["model"], error=build["message"]))
+        if st.button(t("重新轉換 TensorRT"), key=f"engine_retry_{role}"):
+            engine_builder.retry(role)
+            st.rerun()
 
 
 def _model_flash(kind: str, message: str) -> None:

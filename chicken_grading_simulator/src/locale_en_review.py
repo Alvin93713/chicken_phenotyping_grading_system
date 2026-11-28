@@ -38,6 +38,11 @@ EN = {
     "已停用 TensorRT": "TensorRT disabled",
     "TensorRT 載入或推論失敗，已改用 PT": "TensorRT failed to load or run; using PT",
     "TensorRT 檔比 PT 舊，等待重建": "TensorRT engine is older than PT; waiting for rebuild",
+    "{role}：正在把 {model} 轉換成 TensorRT（{time} 開始，約需數分鐘；完成前使用 PT）":
+        "{role}: converting {model} to TensorRT (started {time}, takes a few minutes; PT is used until then)",
+    "{role}：{model} 轉換 TensorRT 失敗，繼續使用 PT。原因：{error}":
+        "{role}: converting {model} to TensorRT failed; PT stays in use. Reason: {error}",
+    "重新轉換 TensorRT": "Convert to TensorRT again",
     "comb 未偵測到有效遮罩": "No valid comb mask detected",
     # --- case review ---------------------------------------------------------------------
     "上一張：{chicken_id} · {role} → 判定為「{decision}」。選錯了可以復原。":

@@ -98,6 +98,13 @@ try:  # load + warm up both models in the background now, not on the first chick
 except Exception as exc:
     print(f"Model preload not started: {exc}")
 
+try:  # Orin: convert any model in use without an up-to-date TensorRT engine (vendor import, git pull, …)
+    import engine_builder
+
+    engine_builder.start()
+except Exception as exc:
+    print(f"TensorRT auto-build not started: {exc}")
+
 try:
     from secure_sync import start_sync_worker
 
