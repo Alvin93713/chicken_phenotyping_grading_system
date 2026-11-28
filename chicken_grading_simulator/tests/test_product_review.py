@@ -1,3 +1,5 @@
+import os as _preload_os
+_preload_os.environ["CHICKEN_PRELOAD_MODELS"] = "0"  # tests never load the real models
 import os as _os
 _os.environ["CHICKEN_SYNC_DISABLE_WORKER"] = "1"  # never start the real background uploader in tests
 _os.environ["CHICKEN_UI_PREFS_PATH"] = _os.devnull  # tests always use the default 原版+深色 look

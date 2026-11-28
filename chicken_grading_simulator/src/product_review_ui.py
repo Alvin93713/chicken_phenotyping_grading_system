@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 import model_registry
-from dual_camera import MODEL_PATHS
+from dual_camera import MODEL_PATHS, runtime_status
 from i18n import t, t_records
 from product_review import (
     bundle_summary,
@@ -639,6 +639,11 @@ def _model_versions_panel() -> None:
                 _model_flash("success", t("{role} 模型已切換為 {name}", role=_role_name(role),
                                     name=model_registry.active_path(role).name))
                 st.rerun()
+        for role in REVIEW_ROLES:  # which file actually runs: the TensorRT engine or the .pt
+            status = runtime_status(role)
+            text = t("{role} 執行格式：{runtime}（{file}）", role=_role_name(role), runtime=status["runtime"],
+                     file=Path(status["path"]).name)
+            st.caption(text + (f"　{t(status['reason'])}" if status["reason"] else ""))
         originals = [role for role in REVIEW_ROLES
                      if model_registry.LEGACY_PATHS[role].is_file()
                      and all(v.legacy for v in model_registry.list_versions(role))]

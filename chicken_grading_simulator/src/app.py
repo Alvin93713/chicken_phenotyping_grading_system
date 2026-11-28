@@ -91,6 +91,13 @@ st.set_page_config(
 
 init_db()
 
+try:  # load + warm up both models in the background now, not on the first chicken (once per process)
+    from dual_camera import preload_models
+
+    preload_models()
+except Exception as exc:
+    print(f"Model preload not started: {exc}")
+
 try:
     from secure_sync import start_sync_worker
 

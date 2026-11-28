@@ -34,6 +34,10 @@ EN = {
     "例行品質抽樣": "Routine quality sample",
     "最低信心 {value}": "Lowest confidence {value}",
     "兩腳差異 {value}": "Legs differ by {value}",
+    "{role} 執行格式：{runtime}（{file}）": "{role} runs on {runtime} ({file})",
+    "已停用 TensorRT": "TensorRT disabled",
+    "TensorRT 載入或推論失敗，已改用 PT": "TensorRT failed to load or run; using PT",
+    "TensorRT 檔比 PT 舊，等待重建": "TensorRT engine is older than PT; waiting for rebuild",
     "comb 未偵測到有效遮罩": "No valid comb mask detected",
     # --- case review ---------------------------------------------------------------------
     "上一張：{chicken_id} · {role} → 判定為「{decision}」。選錯了可以復原。":

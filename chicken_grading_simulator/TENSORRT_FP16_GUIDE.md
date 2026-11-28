@@ -84,27 +84,21 @@ ls -lh best_comb.engine best_shank.engine
 
 ## 5. Make the application prefer TensorRT with PT fallback
 
-Update `src/dual_camera.py` so `MODEL_PATHS` prefers a local engine but still
-falls back to the committed PT model:
+This is built in (`runtime_model` / `predict_role` in `src/dual_camera.py`). For
+each model in use the application looks for an engine with the same name in the
+same folder (`best_comb.pt` -> `best_comb.engine`, `models/best_comb_<farm>_<date>.pt`
+-> `models/best_comb_<farm>_<date>.engine`) and:
 
-```python
-def preferred_model(stem: str) -> Path:
-    engine = BASE_DIR / f"{stem}.engine"
-    return engine if engine.is_file() else BASE_DIR / f"{stem}.pt"
+- uses the engine when it exists and is not older than its `.pt` (a newer `.pt`
+  means the engine was built from the previous model, so the `.pt` is used until
+  the engine is rebuilt);
+- falls back to the `.pt` when the engine cannot be loaded or fails while
+  predicting (a rebuilt engine, with a new modification time, is tried again);
+- always uses the `.pt` when `CHICKEN_DISABLE_TENSORRT=1` is set.
 
-
-MODEL_PATHS = {
-    "comb": preferred_model("best_comb"),
-    "shank": preferred_model("best_shank"),
-}
-```
-
-Keep the existing `YOLO(path)` and `model.predict(...)` calls. Ultralytics uses
-the TensorRT runtime automatically when `path` ends in `.engine`.
-
-Update `scripts/check_ubuntu_runtime.py` to report both the selected runtime
-model and the retained PT source model. The PT files remain required because
-they are the rebuild and rollback source.
+模型維護與更新 shows which file each model runs on, and every measurement's
+`metadata.json` records `runtime` and `runtime_model`. The PT files remain
+required because they are the rebuild and rollback source.
 
 ## 6. Validate results before production use
 

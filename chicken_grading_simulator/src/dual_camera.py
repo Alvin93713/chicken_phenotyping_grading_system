@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -293,17 +294,158 @@ def save_pair(frames, kind="snapshots"):
 @lru_cache(maxsize=4)
 def load_model(path, modified):
     from ultralytics import YOLO
-    model = YOLO(path)
+    # A TensorRT engine is given its task explicitly (its metadata may not carry it).
+    model = YOLO(path, task="segment") if str(path).endswith(".engine") else YOLO(path)
     if model.task != "segment":
         raise ValueError(f"模型必須是 segmentation：{path}（目前為 {model.task}）")
     return model
 
 
+# --- TensorRT first, PyTorch fallback ------------------------------------------------------------------------
+# On the Orin an FP16 engine is built next to each model: best_comb.pt -> best_comb.engine (same folder, same
+# name). The engine is used when it exists and is not older than its .pt (a newer .pt means the engine was
+# built from the previous model); otherwise, or when the engine cannot be loaded or run, the .pt is used.
+# CHICKEN_DISABLE_TENSORRT=1 always uses the .pt.
+RUNTIME_TENSORRT, RUNTIME_PYTORCH = "TensorRT", "PyTorch"
+_engine_failures: dict[str, str] = {}  # engine path -> error; a failed engine is not tried again until it changes
+
+
+def _engine_key(engine: Path) -> str:
+    return f"{engine}|{engine.stat().st_mtime_ns}"  # a rebuilt engine (new mtime) is tried again
+
+
+def engine_path(role) -> Path:
+    return Path(MODEL_PATHS[role]).with_suffix(".engine")
+
+
+def runtime_model(role) -> tuple[Path, str]:
+    """(file to load, runtime) for `role`."""
+    pt = Path(MODEL_PATHS[role])
+    engine = pt.with_suffix(".engine")
+    if os.environ.get("CHICKEN_DISABLE_TENSORRT") != "1" and engine.is_file() \
+            and _engine_key(engine) not in _engine_failures \
+            and (not pt.is_file() or engine.stat().st_mtime_ns >= pt.stat().st_mtime_ns):
+        return engine, RUNTIME_TENSORRT
+    return pt, RUNTIME_PYTORCH
+
+
+def runtime_status(role) -> dict:
+    """What the UI shows: the runtime in use and, when the engine is not used, why."""
+    pt = Path(MODEL_PATHS[role])
+    engine = pt.with_suffix(".engine")
+    path, runtime = runtime_model(role)
+    reason = ""
+    if runtime == RUNTIME_PYTORCH and engine.is_file():
+        if os.environ.get("CHICKEN_DISABLE_TENSORRT") == "1":
+            reason = "已停用 TensorRT"
+        elif _engine_key(engine) in _engine_failures:
+            reason = "TensorRT 載入或推論失敗，已改用 PT"
+        else:
+            reason = "TensorRT 檔比 PT 舊，等待重建"
+    return {"runtime": runtime, "path": str(path), "reason": reason}
+
+
+def _engine_failed(engine: Path, exc: Exception) -> None:
+    _engine_failures[_engine_key(engine)] = str(exc)
+    print(f"TensorRT engine failed, falling back to PT: {engine}: {exc}", file=sys.stderr)
+
+
 def model_for(role):
-    path = MODEL_PATHS[role]
+    path, runtime = runtime_model(role)
     if not path.is_file():
         raise FileNotFoundError(f"找不到{ROLE_ZH.get(role, role)}模型：{path}")
-    return load_model(str(path), path.stat().st_mtime_ns)
+    try:
+        return load_model(str(path), path.stat().st_mtime_ns)
+    except Exception as exc:
+        pt = Path(MODEL_PATHS[role])
+        if runtime != RUNTIME_TENSORRT or not pt.is_file():
+            raise
+        _engine_failed(path, exc)
+        return load_model(str(pt), pt.stat().st_mtime_ns)
+
+
+# --- snapshot jobs come first ---------------------------------------------------------------------------------
+# While a snapshot job is inferring, the live previews show the plain camera picture instead of running YOLO on
+# every frame: preview inference (2 cameras × 15 fps) shares the GPU / Python with the job and made it several
+# times slower. The previews return to inference as soon as no job is running.
+_snapshot_jobs = 0
+_snapshot_jobs_lock = threading.Lock()
+_no_snapshot_job = threading.Event()
+_no_snapshot_job.set()
+
+
+@contextmanager
+def snapshot_inference():
+    """Mark a running snapshot job (nesting and parallel jobs are counted)."""
+    global _snapshot_jobs
+    with _snapshot_jobs_lock:
+        _snapshot_jobs += 1
+        _no_snapshot_job.clear()
+    try:
+        yield
+    finally:
+        with _snapshot_jobs_lock:
+            _snapshot_jobs -= 1
+            if _snapshot_jobs == 0:
+                _no_snapshot_job.set()
+
+
+def preview_inference_paused() -> bool:
+    return not _no_snapshot_job.is_set()
+
+
+# --- load (and warm up) both models when the app starts -------------------------------------------------------
+# The first prediction of a TensorRT engine (or .pt) loads it and builds its CUDA context: ~12 s on the Orin,
+# which the first chicken used to wait for. A background thread does it at start-up instead.
+# CHICKEN_PRELOAD_MODELS=0 turns it off (tests).
+_preload_lock = threading.Lock()
+_preload_started = False
+preload_state: dict[str, str] = {}  # role -> "loading" / "ready" / "error: …"
+
+
+def _warm_up(role):
+    import numpy as np
+
+    preload_state[role] = "loading"
+    try:
+        predict_role(role, np.zeros((720, 1280, 3), dtype=np.uint8), 0.5)  # loads the model and runs it once
+        preload_state[role] = "ready"
+    except Exception as exc:  # a missing / broken model is reported when it is really used
+        preload_state[role] = f"error: {exc}"
+        print(f"Model preload failed for {role}: {exc}", file=sys.stderr)
+
+
+def preload_models() -> bool:
+    """Start loading + warming both models in the background, once per process. Returns True when started."""
+    global _preload_started
+    if os.environ.get("CHICKEN_PRELOAD_MODELS", "1") == "0":
+        return False
+    with _preload_lock:
+        if _preload_started:
+            return False
+        _preload_started = True
+    threading.Thread(target=lambda: [_warm_up(role) for role in ROLES], name="model-preload", daemon=True).start()
+    return True
+
+
+def predict_role(role, frame, confidence):
+    """One segmentation prediction for `role` (engine first; if the engine fails while predicting, the same
+    frame is predicted again with the .pt). Returns (result, model)."""
+    import torch
+
+    for attempt in range(2):
+        path, runtime = runtime_model(role)
+        model = model_for(role)
+        classes = target_classes(model, role)
+        try:
+            with _model_locks[role]:
+                result = model.predict(frame, conf=float(confidence), classes=classes, retina_masks=True,
+                                       device=0 if torch.cuda.is_available() else "cpu", verbose=False)[0]
+            return result, model
+        except Exception as exc:
+            if attempt or runtime != RUNTIME_TENSORRT or not Path(MODEL_PATHS[role]).is_file():
+                raise
+            _engine_failed(path, exc)
 
 
 def target_classes(model, role):
@@ -320,19 +462,7 @@ def target_classes(model, role):
 
 def annotate_preview_frame(role, frame, confidence):
     """Return one YOLO-annotated preview frame without mutating the source frame."""
-    import torch
-
-    model = model_for(role)
-    classes = target_classes(model, role)
-    with _model_locks[role]:
-        result = model.predict(
-            frame,
-            conf=float(confidence),
-            classes=classes,
-            retina_masks=True,
-            device=0 if torch.cuda.is_available() else "cpu",
-            verbose=False,
-        )[0]
+    result, _ = predict_role(role, frame, confidence)
     return result.plot()
 
 
@@ -371,7 +501,10 @@ class InferenceReader:
                 source, _ = reader(self.index).latest()
                 with self.lock:
                     confidence = self.confidence
-                annotated = annotate_preview_frame(self.role, source, confidence)
+                if preview_inference_paused():  # a snapshot job is inferring: plain picture, no YOLO
+                    annotated = source
+                else:
+                    annotated = annotate_preview_frame(self.role, source, confidence)
                 with self.lock:
                     self.frame = annotated
                     self.timestamp = time.monotonic()
@@ -472,6 +605,12 @@ def combine_legs(legs, tolerance=LEG_AGREEMENT_TOLERANCE):
 
 
 def infer_pair(paths, scales, confidence, progress):
+    """Infer one snapshot (comb + shank photos); live preview inference pauses meanwhile."""
+    with snapshot_inference():
+        return _infer_pair(paths, scales, confidence, progress)
+
+
+def _infer_pair(paths, scales, confidence, progress):
     import cv2
     import numpy as np
     import torch
@@ -482,15 +621,11 @@ def infer_pair(paths, scales, confidence, progress):
     metadata = {"source": "dual_camera_snapshot", "sample_frames": [], "cameras": {}}
     for n, role in enumerate(ROLES):
         progress(n, 2, f"正在推論 {role} 單張照片")
-        model = model_for(role)
         frame = cv2.imdecode(np.fromfile(paths[role], dtype=np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             raise ValueError(f"無法讀取{ROLE_ZH[role]}照片")
-        classes = target_classes(model, role)
-        with _model_locks[role]:
-            result = model.predict(frame, conf=float(confidence), classes=classes,
-                                   retina_masks=True, device=0 if torch.cuda.is_available() else "cpu",
-                                   verbose=False)[0]
+        result, model = predict_role(role, frame, confidence)
+        runtime = runtime_model(role)
         if result.masks is None or result.boxes is None or len(result.boxes) == 0:
             raise ValueError(
                 f"{ROLE_ZH[role]}未偵測到有效遮罩（信心門檻 {float(confidence):.2f}），"
@@ -544,6 +679,7 @@ def infer_pair(paths, scales, confidence, progress):
             "photo": paths[role],
             "cm_per_pixel": scale,
             "model": str(MODEL_PATHS[role]),
+            "runtime": runtime[1], "runtime_model": str(runtime[0]),  # TensorRT engine or the .pt
             "confidence_threshold": confidence,
             "detection_confidence": selected_confidence,
         }
